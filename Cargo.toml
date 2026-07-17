@@ -1,0 +1,28 @@
+# Crate manifest for des-mcp-server — MCP (stdio) tools for the
+# discrete-event-systems org (DES engine work under ~/codes/ores for now).
+[package]
+name = "des-mcp-server"
+version = "0.1.0"
+edition = "2024"
+description = "MCP server for the discrete-event-systems org — read-only/build-only tools over the DES engine repos, sim-model inventory, engine docs, Supabase client telemetry, domains, and GitHub CI."
+
+[lib]
+name = "des_mcp_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "des-mcp-server"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+chrono = "0.4"
+# Official Rust MCP SDK: stdio transport + #[tool] macros + schemars re-export.
+rmcp = { version = "2.2", features = ["server", "macros", "schemars", "transport-io"] }
+schemars = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# DoH (1.1.1.1), RDAP, Cloudflare v4, GitHub Actions, Supabase PostgREST.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+# "process" for cargo/tsc/git subprocesses, "time" for their timeouts.
+tokio = { version = "1", features = ["macros", "net", "process", "rt-multi-thread", "time"] }
