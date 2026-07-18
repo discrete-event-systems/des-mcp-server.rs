@@ -18,7 +18,13 @@ use crate::org_map;
 const SCHEMA_SQL: &str = include_str!("../supabase/schema.sql");
 
 /// (uri, human name, description, mime, body) for each readable resource.
-fn entries() -> Vec<(&'static str, &'static str, &'static str, &'static str, String)> {
+fn entries() -> Vec<(
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    String,
+)> {
     vec![
         (
             "orgmap://discrete-event-systems",
@@ -72,11 +78,12 @@ pub fn resources() -> Vec<Resource> {
 
 /// Read one resource by URI. `None` if the URI is unknown.
 pub fn read(uri: &str) -> Option<ReadResourceResult> {
-    entries().into_iter().find(|(u, ..)| *u == uri).map(
-        |(u, _name, _desc, _mime, body)| {
+    entries()
+        .into_iter()
+        .find(|(u, ..)| *u == uri)
+        .map(|(u, _name, _desc, _mime, body)| {
             ReadResourceResult::new(vec![ResourceContents::text(body, u)])
-        },
-    )
+        })
 }
 
 // -------------------------------------------------------------------- prompts

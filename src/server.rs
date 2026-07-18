@@ -912,7 +912,10 @@ impl DesMcp {
                             .to_string(),
                     ));
                 } else if failed {
-                    checks.push((2, "CI: RED — a latest workflow run failed (see ci_status)".to_string()));
+                    checks.push((
+                        2,
+                        "CI: RED — a latest workflow run failed (see ci_status)".to_string(),
+                    ));
                 } else {
                     checks.push((0, "CI: GREEN — latest runs not failing".to_string()));
                 }
@@ -1002,12 +1005,12 @@ impl ServerHandler for DesMcp {
                 .enable_prompts()
                 .build(),
         )
-            .with_server_info(Implementation::new(
-                env!("CARGO_PKG_NAME"),
-                env!("CARGO_PKG_VERSION"),
-            ))
-            .with_instructions(
-                "Tools for the discrete-event-systems org (DES engine work). The engine \
+        .with_server_info(Implementation::new(
+            env!("CARGO_PKG_NAME"),
+            env!("CARGO_PKG_VERSION"),
+        ))
+        .with_instructions(
+            "Tools for the discrete-event-systems org (DES engine work). The engine \
                  repos still live LOCALLY under DES_ROOT (default ~/codes/ores) and are \
                  migrating into the GitHub org — org_overview and org_map explain the \
                  layout. Use search_code instead of raw grep (skips target/ and \
@@ -1023,6 +1026,6 @@ impl ServerHandler for DesMcp {
                  cloudflare_* needs CLOUDFLARE_API_TOKEN; Squarespace-registered domains \
                  are covered via domain_info (RDAP) + dns_lookup (DoH). All tools are \
                  read-only or build-only.",
-            )
+        )
     }
 }

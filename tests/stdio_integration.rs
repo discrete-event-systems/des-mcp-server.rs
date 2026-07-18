@@ -204,6 +204,7 @@ fn tools_list_contains_all_tool_families() {
         "ts_engine_check",
         // models & docs
         "sim_models",
+        "sim_model_inspect",
         "engine_docs",
         "engine_comparison",
         "org_map",
@@ -211,6 +212,7 @@ fn tools_list_contains_all_tool_families() {
         "telemetry_docs",
         "client_log_sessions",
         "tail_client_logs",
+        "client_log_trace",
         "client_error_summary",
         // CI
         "ci_status",
@@ -220,6 +222,10 @@ fn tools_list_contains_all_tool_families() {
         "tls_cert_check",
         "cloudflare_zones",
         "cloudflare_dns_records",
+        // readiness / ops
+        "self_test",
+        "fiducia_status",
+        "stack_status",
     ] {
         assert!(
             names.contains(&expected),

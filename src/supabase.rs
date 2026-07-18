@@ -236,7 +236,10 @@ mod tests {
         let first = out.lines().next().unwrap();
         assert!(first.contains("2×"));
         assert!(first.contains("/sim/a"));
-        assert_eq!(summarize_field(&[], "url"), "(no error/warn entries in the window)");
+        assert_eq!(
+            summarize_field(&[], "url"),
+            "(no error/warn entries in the window)"
+        );
     }
 
     #[test]

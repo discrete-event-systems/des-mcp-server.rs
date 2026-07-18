@@ -17,7 +17,9 @@ pub const MAX_SPEC_BYTES: u64 = 4_000_000;
 /// caller-supplied `rel` must stay inside `repo_dir` and be an existing file.
 pub fn resolve_spec(repo_dir: &Path, rel: &str) -> Result<PathBuf, String> {
     if rel.is_empty() || rel.starts_with('/') || rel.contains("..") || rel.contains('\\') {
-        return Err(format!("invalid spec path {rel:?} (no absolute paths, no `..`)"));
+        return Err(format!(
+            "invalid spec path {rel:?} (no absolute paths, no `..`)"
+        ));
     }
     // Only JSON specs are inspectable.
     if !rel.ends_with(".json") {
@@ -62,8 +64,8 @@ fn names(v: &Value, key: &str, id_field: &str, limit: usize) -> Vec<String> {
 /// Parse and summarize a model spec. `label` is a human-facing name for the
 /// spec (e.g. its path) used only in the header.
 pub fn inspect(label: &str, raw: &str) -> Result<String, String> {
-    let v: Value = serde_json::from_str(raw)
-        .map_err(|e| format!("{label}: not valid JSON ({e})"))?;
+    let v: Value =
+        serde_json::from_str(raw).map_err(|e| format!("{label}: not valid JSON ({e})"))?;
     let obj = v
         .as_object()
         .ok_or_else(|| format!("{label}: top-level JSON is not an object"))?;
@@ -76,7 +78,9 @@ pub fn inspect(label: &str, raw: &str) -> Result<String, String> {
     }
     // `model` (des-engine citizen name) or `id` (universal-math document id).
     if let Some(model) = get_str("model") {
-        out.push_str(&format!("model:       {model}   (the citizen/solver this spec drives)\n"));
+        out.push_str(&format!(
+            "model:       {model}   (the citizen/solver this spec drives)\n"
+        ));
     } else if let Some(id) = get_str("id") {
         out.push_str(&format!("id:          {id}\n"));
     }
@@ -239,7 +243,13 @@ mod tests {
     #[test]
     fn resolve_spec_rejects_traversal_and_non_json() {
         let dir = std::env::temp_dir();
-        for bad in ["../etc/passwd", "/etc/passwd", "a/../../b.json", "notes.md", ""] {
+        for bad in [
+            "../etc/passwd",
+            "/etc/passwd",
+            "a/../../b.json",
+            "notes.md",
+            "",
+        ] {
             assert!(resolve_spec(&dir, bad).is_err(), "should reject {bad:?}");
         }
     }

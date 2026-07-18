@@ -29,7 +29,9 @@ pub struct FiduciaEnv {
 /// Read FIDUCIA_URL + FIDUCIA_TOKEN. Absent → a typed, actionable error.
 pub fn env() -> Result<FiduciaEnv, String> {
     let url = std::env::var("FIDUCIA_URL").ok().filter(|s| !s.is_empty());
-    let token = std::env::var("FIDUCIA_TOKEN").ok().filter(|s| !s.is_empty());
+    let token = std::env::var("FIDUCIA_TOKEN")
+        .ok()
+        .filter(|s| !s.is_empty());
     match (url, token) {
         (Some(url), Some(token)) => Ok(FiduciaEnv {
             url: url.trim_end_matches('/').to_string(),

@@ -34,7 +34,10 @@ pub fn report(root: &Path) -> String {
     if !missing.is_empty() {
         out.push_str(&format!("  DES repos missing: {}\n", missing.join(", ")));
     }
-    let rust_engine = root.join("discrete-event-system.rs").join("Cargo.toml").is_file();
+    let rust_engine = root
+        .join("discrete-event-system.rs")
+        .join("Cargo.toml")
+        .is_file();
     out.push_str(&format!(
         "  cargo/engine tools: {} (discrete-event-system.rs Cargo.toml {})\n\n",
         mark(rust_engine),
@@ -48,7 +51,9 @@ pub fn report(root: &Path) -> String {
     let fiducia = present("FIDUCIA_URL") && present("FIDUCIA_TOKEN");
 
     out.push_str("## tool families\n");
-    out.push_str("  LIVE     org/git, builds, sim_models, sim_model_inspect, docs (no creds needed)\n");
+    out.push_str(
+        "  LIVE     org/git, builds, sim_models, sim_model_inspect, docs (no creds needed)\n",
+    );
     out.push_str("  LIVE     domains: dns_lookup, domain_info, tls_cert_check (public DoH/RDAP)\n");
     out.push_str(&format!(
         "  {} telemetry: client_log_sessions/tail_client_logs/client_log_trace/client_error_summary  \
@@ -62,7 +67,11 @@ pub fn report(root: &Path) -> String {
     out.push_str(&format!(
         "  {} ci_status  (works unauthenticated; GITHUB_TOKEN/GH_TOKEN raises rate limits{})\n",
         if github { "LIVE    " } else { "LIMITED " },
-        if github { "" } else { " — currently unauthenticated" }
+        if github {
+            ""
+        } else {
+            " — currently unauthenticated"
+        }
     ));
     out.push_str(&format!(
         "  {} fiducia_status  (needs FIDUCIA_URL + FIDUCIA_TOKEN)\n",
