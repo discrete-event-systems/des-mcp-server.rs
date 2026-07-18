@@ -16,7 +16,7 @@ use crate::util::{
     self, DES_REPOS, git, parse_failing_tests, parse_test_summaries, run_cmd, safe_pg_filter_value,
     safe_segment, truncate_output,
 };
-use crate::{cloudflare, domains, github, models, org_map, supabase};
+use crate::{cloudflare, domains, fiducia, github, models, org_map, selftest, supabase};
 
 #[derive(Deserialize, JsonSchema)]
 pub struct RepoReq {
