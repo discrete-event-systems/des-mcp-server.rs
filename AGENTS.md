@@ -27,14 +27,24 @@ org over stdio. See README.md for the tool table and env configuration.
 
 ## Where things live
 
-- `src/server.rs` — the `#[tool_router]` impl; thin wrappers so logic stays
-  unit-testable. `src/util.rs` — subprocess/validation helpers + the DES
-  repo allowlist. `src/models.rs` — sim-model inventory rules (where each
-  repo keeps runnable models). `src/org_map.rs` — embedded org map, engine
-  docs, legacy comparison, telemetry docs (update on repo migration!).
-  `src/supabase.rs` — PostgREST read tools over the `des_client_log_*`
-  tables. `src/github.rs` — org CI status. `src/domains.rs` /
-  `src/cloudflare.rs` — DoH/RDAP/TLS and the Cloudflare v4 API.
+- `src/server.rs` — the `#[tool_router]` impl (26 tools) + the `ServerHandler`
+  resource/prompt methods (`list_resources`/`read_resource`/`list_prompts`/
+  `get_prompt`); thin wrappers so logic stays unit-testable. `src/util.rs` —
+  subprocess/validation helpers + the DES repo allowlist. `src/models.rs` —
+  sim-model inventory rules. `src/spec.rs` — the DES-unique JSON model-spec
+  inspector (`sim_model_inspect`; path-safe, parse-only). `src/catalog.rs` —
+  the MCP **resources** (orgmap://, docs://, schema://) and **prompts**
+  (engine_readiness, triage_client_errors, domain_audit); embeds
+  `supabase/schema.sql` via `include_str!`. `src/selftest.rs` — the offline
+  `self_test` capability report. `src/fiducia.rs` — read-only `fiducia_status`
+  (local secret presence + endpoint probe). `src/org_map.rs` — embedded org
+  map, engine docs, legacy comparison, telemetry docs (update on repo
+  migration! — these back the docs:// resources too). `src/supabase.rs` —
+  PostgREST read tools over the `des_client_log_*` tables (grouping is
+  restricted to `GROUP_FIELDS`). `src/github.rs` — org CI status.
+  `src/domains.rs` / `src/cloudflare.rs` — DoH/RDAP/TLS and the Cloudflare v4
+  API. The flagship `stack_status` aggregates engine build + CI + apex DNS
+  into a GREEN/DEGRADED/RED rollup (no k8s in this org).
 - `supabase/schema.sql` — declarative (dpm-style) schema for the telemetry
   tables, ingest RPCs, RLS, and realtime publication. Keep the RPC/table
   names in sync with `org_map::TELEMETRY_DOCS` and the README.
