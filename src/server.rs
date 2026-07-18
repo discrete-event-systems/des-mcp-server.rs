@@ -959,8 +959,49 @@ impl DesMcp {
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for DesMcp {
+    async fn list_resources(
+        &self,
+        _req: Option<PaginatedRequestParams>,
+        _ctx: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, McpError> {
+        Ok(ListResourcesResult::with_all_items(catalog::resources()))
+    }
+
+    async fn read_resource(
+        &self,
+        req: ReadResourceRequestParams,
+        _ctx: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResult, McpError> {
+        catalog::read(&req.uri).ok_or_else(|| {
+            McpError::resource_not_found(format!("no such resource: {}", req.uri), None)
+        })
+    }
+
+    async fn list_prompts(
+        &self,
+        _req: Option<PaginatedRequestParams>,
+        _ctx: RequestContext<RoleServer>,
+    ) -> Result<ListPromptsResult, McpError> {
+        Ok(ListPromptsResult::with_all_items(catalog::prompts()))
+    }
+
+    async fn get_prompt(
+        &self,
+        req: GetPromptRequestParams,
+        _ctx: RequestContext<RoleServer>,
+    ) -> Result<GetPromptResult, McpError> {
+        catalog::get_prompt(&req.name, &req.arguments)
+            .ok_or_else(|| McpError::invalid_params(format!("no such prompt: {}", req.name), None))
+    }
+
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+        ServerInfo::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .enable_prompts()
+                .build(),
+        )
             .with_server_info(Implementation::new(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),
