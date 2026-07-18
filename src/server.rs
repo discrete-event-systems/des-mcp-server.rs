@@ -548,6 +548,30 @@ impl DesMcp {
     }
 
     #[tool(
+        description = "Inspect ONE JSON model spec without running it (DES-unique): parse it and report its schema, the model/citizen it drives, parameters, runtime knobs, tags, and — for the universal-math DES documents — the math payload (state variables, equations, block graph). Default repo des-engine (its 95 examples/*.json); pass file relative to the repo root, e.g. examples/blackjack-mc.json. Read-only, parse-only."
+    )]
+    async fn sim_model_inspect(
+        &self,
+        Parameters(req): Parameters<SimModelInspectReq>,
+    ) -> Result<String, String> {
+        let repo = req.repo.as_deref().unwrap_or("des-engine");
+        let dir = self.repo_path(repo)?;
+        let path = crate::spec::resolve_spec(&dir, &req.file)?;
+        let meta = std::fs::metadata(&path).map_err(|e| format!("stat failed: {e}"))?;
+        if meta.len() > crate::spec::MAX_SPEC_BYTES {
+            return Err(format!(
+                "{:?} is {} bytes — too large to inspect (cap {})",
+                req.file,
+                meta.len(),
+                crate::spec::MAX_SPEC_BYTES
+            ));
+        }
+        let raw = std::fs::read_to_string(&path).map_err(|e| format!("read failed: {e}"))?;
+        let label = format!("{repo}/{}", req.file);
+        Ok(truncate_output(crate::spec::inspect(&label, &raw)?))
+    }
+
+    #[tool(
         description = "The DES engine core abstractions, drawn from the real code: the FEL scheduler Engine<W> (schedule_at/schedule_after/run_until/now) in discrete-event-system.rs, the model-citizen contract (CitizenRegistry, ModelDescriptor, RunArtifact), and the TS engine's station/tick kernel (DESStation, TimeSteppedStation — deliberately NO global future event list). Offline/embedded."
     )]
     async fn engine_docs(&self) -> Result<String, String> {
