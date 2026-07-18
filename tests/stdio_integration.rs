@@ -162,7 +162,18 @@ fn temp_org(tag: &str) -> PathBuf {
     // fake original TS engine with JSON model specs
     let ts = root.join("des-engine");
     std::fs::create_dir_all(ts.join("examples")).unwrap();
-    std::fs::write(ts.join("examples/tiger-pomdp.json"), "{}\n").unwrap();
+    std::fs::write(
+        ts.join("examples/tiger-pomdp.json"),
+        r#"{
+            "$schema": "des/model-spec/v1",
+            "model": "tiger-pomdp",
+            "description": "Classic tiger POMDP",
+            "parameters": {"discount": 0.95, "horizon": 100},
+            "runtime": {"seed": 3},
+            "metadata": {"tags": ["pomdp", "planning"]}
+        }"#,
+    )
+    .unwrap();
     std::fs::write(ts.join("examples/blackjack-mc.json"), "{}\n").unwrap();
     std::fs::write(ts.join("package.json"), "{\"name\": \"uta-phd-des\"}\n").unwrap();
     git_in(&ts, &["init", "-q", "-b", "main"]);
@@ -204,6 +215,7 @@ fn tools_list_contains_all_tool_families() {
         "ts_engine_check",
         // models & docs
         "sim_models",
+        "sim_model_inspect",
         "engine_docs",
         "engine_comparison",
         "org_map",
@@ -211,6 +223,7 @@ fn tools_list_contains_all_tool_families() {
         "telemetry_docs",
         "client_log_sessions",
         "tail_client_logs",
+        "client_log_trace",
         "client_error_summary",
         // CI
         "ci_status",
@@ -220,6 +233,10 @@ fn tools_list_contains_all_tool_families() {
         "tls_cert_check",
         "cloudflare_zones",
         "cloudflare_dns_records",
+        // readiness / ops
+        "self_test",
+        "fiducia_status",
+        "stack_status",
     ] {
         assert!(
             names.contains(&expected),
@@ -427,6 +444,139 @@ fn cargo_check_runs_in_the_fake_engine_repo() {
     let (err, text) = mcp.call_tool("cargo_check", json!({"repo": "des-engine"}));
     assert!(err);
     assert!(text.contains("no Cargo.toml"));
+
+    let _ = std::fs::remove_dir_all(&org);
+}
+
+#[test]
+fn sim_model_inspect_parses_a_spec_and_rejects_traversal() {
+    let org = temp_org("inspect");
+    let mut mcp = McpProc::spawn(&org);
+
+    // default repo is des-engine; inspect the realistic spec
+    let (err, text) = mcp.call_tool(
+        "sim_model_inspect",
+        json!({"file": "examples/tiger-pomdp.json"}),
+    );
+    assert!(!err, "sim_model_inspect errored: {text}");
+    assert!(text.contains("model:       tiger-pomdp"), "got: {text}");
+    assert!(text.contains("parameters"));
+    assert!(text.contains("tags: pomdp, planning"));
+
+    // path traversal must be rejected before any read
+    let (err, text) = mcp.call_tool("sim_model_inspect", json!({"file": "../../../etc/passwd"}));
+    assert!(err, "traversal should be rejected");
+    assert!(text.contains("invalid spec path") || text.contains("no such spec"));
+
+    // non-json file rejected
+    let (err, _text) = mcp.call_tool("sim_model_inspect", json!({"file": "package.json.md"}));
+    assert!(err);
+
+    let _ = std::fs::remove_dir_all(&org);
+}
+
+#[test]
+fn resources_and_prompts_are_advertised_and_readable() {
+    let org = temp_org("res");
+    let mut mcp = McpProc::spawn(&org);
+
+    // resources/list advertises the embedded catalog
+    let resp = mcp.request("resources/list", json!({}));
+    let uris: Vec<String> = resp
+        .pointer("/result/resources")
+        .and_then(Value::as_array)
+        .expect("resources array")
+        .iter()
+        .filter_map(|r| r.get("uri").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect();
+    for want in [
+        "orgmap://discrete-event-systems",
+        "docs://engine",
+        "schema://telemetry",
+    ] {
+        assert!(
+            uris.iter().any(|u| u == want),
+            "missing resource {want}: {uris:?}"
+        );
+    }
+
+    // resources/read returns the real schema.sql
+    let resp = mcp.request("resources/read", json!({"uri": "schema://telemetry"}));
+    let text = resp
+        .pointer("/result/contents/0/text")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    assert!(
+        text.contains("des_client_log_snapshots"),
+        "schema body: {text:.80}"
+    );
+
+    // unknown uri => protocol error
+    let resp = mcp.request("resources/read", json!({"uri": "nope://x"}));
+    assert!(resp.get("error").is_some(), "unknown uri should error");
+
+    // prompts/list + prompts/get
+    let resp = mcp.request("prompts/list", json!({}));
+    let names: Vec<String> = resp
+        .pointer("/result/prompts")
+        .and_then(Value::as_array)
+        .expect("prompts array")
+        .iter()
+        .filter_map(|p| p.get("name").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect();
+    for want in ["engine_readiness", "triage_client_errors", "domain_audit"] {
+        assert!(
+            names.iter().any(|n| n == want),
+            "missing prompt {want}: {names:?}"
+        );
+    }
+
+    let resp = mcp.request(
+        "prompts/get",
+        json!({"name": "domain_audit", "arguments": {"domain": "example.dev"}}),
+    );
+    let msg = resp
+        .pointer("/result/messages/0/content/text")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    assert!(msg.contains("example.dev"), "prompt body: {msg}");
+
+    let resp = mcp.request("prompts/get", json!({"name": "does-not-exist"}));
+    assert!(resp.get("error").is_some(), "unknown prompt should error");
+
+    let _ = std::fs::remove_dir_all(&org);
+}
+
+#[test]
+fn ops_tools_report_offline() {
+    let org = temp_org("ops");
+    let mut mcp = McpProc::spawn(&org);
+
+    // self_test is fully offline
+    let (err, text) = mcp.call_tool("self_test", json!({}));
+    assert!(!err, "self_test errored: {text}");
+    assert!(text.contains("DES repos present"));
+    assert!(text.contains("tool families"));
+    assert!(text.contains("cargo/engine tools: LIVE"));
+
+    // fiducia_status: env is stripped in spawn(), so it reports local secret
+    // presence and a clear "not configured" endpoint note — never a crash
+    let (err, text) = mcp.call_tool("fiducia_status", json!({}));
+    assert!(!err, "fiducia_status errored: {text}");
+    assert!(text.contains("required secrets"));
+    assert!(text.contains("FIDUCIA_URL"), "got: {text}");
+
+    // client_log_trace needs supabase env → typed error, not a crash
+    let (err, text) = mcp.call_tool("client_log_trace", json!({"session_id": "sess-1"}));
+    assert!(err);
+    assert!(text.contains("SUPABASE_URL"));
+
+    // invalid group_by on the summary is rejected before any network I/O
+    let (err, text) = mcp.call_tool("client_error_summary", json!({"group_by": "drop table"}));
+    assert!(err);
+    assert!(text.contains("invalid group_by"));
 
     let _ = std::fs::remove_dir_all(&org);
 }

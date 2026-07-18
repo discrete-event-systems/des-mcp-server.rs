@@ -5,10 +5,18 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use rmcp::ErrorData as McpError;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{Implementation, ServerCapabilities, ServerInfo};
+use rmcp::model::{
+    GetPromptRequestParams, GetPromptResult, Implementation, ListPromptsResult,
+    ListResourcesResult, PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResult,
+    ServerCapabilities, ServerInfo,
+};
+use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ServerHandler, tool, tool_handler, tool_router};
+
+use crate::catalog;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -16,7 +24,7 @@ use crate::util::{
     self, DES_REPOS, git, parse_failing_tests, parse_test_summaries, run_cmd, safe_pg_filter_value,
     safe_segment, truncate_output,
 };
-use crate::{cloudflare, domains, github, models, org_map, supabase};
+use crate::{cloudflare, domains, fiducia, github, models, org_map, selftest, supabase};
 
 #[derive(Deserialize, JsonSchema)]
 pub struct RepoReq {
@@ -148,6 +156,37 @@ pub struct ErrorSummaryReq {
     hours: Option<u32>,
     /// Filter by environment.
     environment: Option<String>,
+    /// Group the error/warn entries by this field instead of message:
+    /// one of message (default), url, sim_id, user_id, session_id, level.
+    /// Use url/sim_id to localize a failure to a route or model.
+    group_by: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct ClientLogTraceReq {
+    /// Session id from client_log_sessions.
+    session_id: String,
+    /// Max entries (default 300, max 1000).
+    limit: Option<u32>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct SimModelInspectReq {
+    /// DES repo the spec lives in (default "des-engine", which holds the 95
+    /// JSON model specs under examples/).
+    repo: Option<String>,
+    /// Path to the JSON spec RELATIVE to the repo root, e.g.
+    /// "examples/blackjack-mc.json". No absolute paths, no "..".
+    file: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct StackStatusReq {
+    /// Also probe this apex domain's A record (e.g. the org's marketing/app
+    /// host). Optional — omit to skip the DNS check.
+    domain: Option<String>,
+    /// Timeout (seconds) for the engine build check (default 300, max 1200).
+    timeout_secs: Option<u64>,
 }
 
 const LOG_LEVELS: &[&str] = &["error", "warn", "info", "debug", "trace"];
@@ -517,6 +556,30 @@ impl DesMcp {
     }
 
     #[tool(
+        description = "Inspect ONE JSON model spec without running it (DES-unique): parse it and report its schema, the model/citizen it drives, parameters, runtime knobs, tags, and — for the universal-math DES documents — the math payload (state variables, equations, block graph). Default repo des-engine (its 95 examples/*.json); pass file relative to the repo root, e.g. examples/blackjack-mc.json. Read-only, parse-only."
+    )]
+    async fn sim_model_inspect(
+        &self,
+        Parameters(req): Parameters<SimModelInspectReq>,
+    ) -> Result<String, String> {
+        let repo = req.repo.as_deref().unwrap_or("des-engine");
+        let dir = self.repo_path(repo)?;
+        let path = crate::spec::resolve_spec(&dir, &req.file)?;
+        let meta = std::fs::metadata(&path).map_err(|e| format!("stat failed: {e}"))?;
+        if meta.len() > crate::spec::MAX_SPEC_BYTES {
+            return Err(format!(
+                "{:?} is {} bytes — too large to inspect (cap {})",
+                req.file,
+                meta.len(),
+                crate::spec::MAX_SPEC_BYTES
+            ));
+        }
+        let raw = std::fs::read_to_string(&path).map_err(|e| format!("read failed: {e}"))?;
+        let label = format!("{repo}/{}", req.file);
+        Ok(truncate_output(crate::spec::inspect(&label, &raw)?))
+    }
+
+    #[tool(
         description = "The DES engine core abstractions, drawn from the real code: the FEL scheduler Engine<W> (schedule_at/schedule_after/run_until/now) in discrete-event-system.rs, the model-citizen contract (CitizenRegistry, ModelDescriptor, RunArtifact), and the TS engine's station/tick kernel (DESStation, TimeSteppedStation — deliberately NO global future event list). Offline/embedded."
     )]
     async fn engine_docs(&self) -> Result<String, String> {
@@ -621,11 +684,20 @@ impl DesMcp {
         Parameters(req): Parameters<ErrorSummaryReq>,
     ) -> Result<String, String> {
         let hours = req.hours.unwrap_or(24).clamp(1, 720);
+        let group_by = req.group_by.as_deref().unwrap_or("message");
+        if !supabase::GROUP_FIELDS.contains(&group_by) {
+            return Err(format!(
+                "invalid group_by {group_by:?} — one of {:?}",
+                supabase::GROUP_FIELDS
+            ));
+        }
         let since = (chrono::Utc::now() - chrono::Duration::hours(hours as i64))
             .format("%Y-%m-%dT%H:%M:%SZ")
             .to_string();
+        // Always select the field we group by (plus level/message for context).
+        let select = format!("level,message,{group_by}");
         let mut query = vec![
-            ("select".to_string(), "level,message".to_string()),
+            ("select".to_string(), select),
             ("level".to_string(), "in.(error,warn)".to_string()),
             ("created_at".to_string(), format!("gte.{since}")),
             ("limit".to_string(), "1000".to_string()),
@@ -635,10 +707,41 @@ impl DesMcp {
             query.push(("environment".to_string(), format!("eq.{env}")));
         }
         let rows = supabase::rest_get(supabase::ENTRIES_TABLE, &query).await?;
-        Ok(truncate_output(format!(
-            "error/warn entries in the last {hours}h ({} sampled, cap 1000):\n{}",
-            rows.len(),
+        let grouped = if group_by == "message" {
             supabase::summarize_errors(&rows)
+        } else {
+            supabase::summarize_field(&rows, group_by)
+        };
+        Ok(truncate_output(format!(
+            "error/warn entries in the last {hours}h grouped by {group_by} ({} sampled, cap 1000):\n{grouped}",
+            rows.len(),
+        )))
+    }
+
+    #[tool(
+        description = "Full ordered entry timeline for ONE client session (des_client_log_entries), oldest→newest, with level/url/sim_id/category tags — the 'walk this session end to end' view for root-causing a client error. Needs SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY. Read-only."
+    )]
+    async fn client_log_trace(
+        &self,
+        Parameters(req): Parameters<ClientLogTraceReq>,
+    ) -> Result<String, String> {
+        safe_pg_filter_value(&req.session_id, "session_id")?;
+        let limit = req.limit.unwrap_or(300).clamp(1, 1000);
+        let query = vec![
+            (
+                "select".to_string(),
+                "client_timestamp,level,message,url,sim_id,category".to_string(),
+            ),
+            ("session_id".to_string(), format!("eq.{}", req.session_id)),
+            ("order".to_string(), "client_timestamp.asc".to_string()),
+            ("limit".to_string(), limit.to_string()),
+        ];
+        let rows = supabase::rest_get(supabase::ENTRIES_TABLE, &query).await?;
+        Ok(truncate_output(format!(
+            "trace for session {} ({} entry/entries, oldest first):\n{}",
+            req.session_id,
+            rows.len(),
+            supabase::format_trace(&rows)
         )))
     }
 
@@ -739,18 +842,175 @@ impl DesMcp {
             cloudflare::format_records(&body)
         )))
     }
+
+    // ------------------------------------------------------ readiness / ops
+
+    #[tool(
+        description = "Offline capability report: which env vars/creds are present (VALUES NEVER SHOWN) and therefore which tool families are LIVE vs DEGRADED, plus which DES repos are on disk under DES_ROOT. No network, no subprocess — the fast 'what is configured' check before running live tools."
+    )]
+    async fn self_test(&self) -> Result<String, String> {
+        Ok(truncate_output(selftest::report(&self.root)))
+    }
+
+    #[tool(
+        description = "Read-only fiducia.cloud (shared secrets/locks plane) status: reports which of this org's required secrets are present locally (presence only, never values) and — when FIDUCIA_URL + FIDUCIA_TOKEN are set — probes the fiducia health/lease endpoint (10s timeout, graceful 'unreachable' if down). Ties the org into the shared secrets plane."
+    )]
+    async fn fiducia_status(&self) -> Result<String, String> {
+        let mut out = String::from("# fiducia status\n\n");
+        out.push_str(&fiducia::local_secret_report());
+        out.push_str("\n## fiducia endpoint (lock/lease health)\n");
+        match fiducia::env() {
+            Err(e) => out.push_str(&format!("  {e}\n")),
+            Ok(env) => {
+                out.push_str(&fiducia::probe(&env).await);
+                out.push('\n');
+            }
+        }
+        Ok(truncate_output(out))
+    }
+
+    #[tool(
+        description = "Flagship aggregate readiness: runs the DES engine build check + latest GitHub Actions CI + (optional) apex DNS in one call and returns a compact GREEN/DEGRADED/RED rollup naming every failing check. This org has NO k8s workload, so engine build/test health stands in for deploy status. The engine build honors timeout_secs (default 300)."
+    )]
+    async fn stack_status(
+        &self,
+        Parameters(req): Parameters<StackStatusReq>,
+    ) -> Result<String, String> {
+        // rank: 0 GREEN, 1 DEGRADED, 2 RED. rollup = worst.
+        let mut checks: Vec<(u8, String)> = Vec::new();
+
+        // 1) engine build health (stands in for deploy status — no k8s here).
+        match self.rust_repo_path("discrete-event-system.rs") {
+            Err(e) => checks.push((1, format!("engine build: DEGRADED — {e}"))),
+            Ok(dir) => {
+                let timeout = Duration::from_secs(req.timeout_secs.unwrap_or(300).clamp(30, 1200));
+                match run_cmd(Some(&dir), "cargo", &["check"], timeout).await {
+                    Ok((true, _)) => {
+                        checks.push((0, "engine build: GREEN — cargo check OK".to_string()))
+                    }
+                    Ok((false, text)) => {
+                        let first = text
+                            .lines()
+                            .find(|l| l.trim_start().starts_with("error"))
+                            .unwrap_or("cargo check failed")
+                            .trim();
+                        checks.push((2, format!("engine build: RED — {first}")));
+                    }
+                    Err(e) => checks.push((1, format!("engine build: DEGRADED — {e}"))),
+                }
+            }
+        }
+
+        // 2) latest CI across the org.
+        match github::ci_status(1).await {
+            Ok(text) => {
+                let failed = text.contains("/failure") || text.contains("/timed_out");
+                if text.contains("no repos visible") {
+                    checks.push((
+                        1,
+                        "CI: DEGRADED — no repos visible in github.com/discrete-event-systems yet"
+                            .to_string(),
+                    ));
+                } else if failed {
+                    checks.push((
+                        2,
+                        "CI: RED — a latest workflow run failed (see ci_status)".to_string(),
+                    ));
+                } else {
+                    checks.push((0, "CI: GREEN — latest runs not failing".to_string()));
+                }
+            }
+            Err(e) => checks.push((1, format!("CI: DEGRADED — {e}"))),
+        }
+
+        // 3) optional apex DNS reachability.
+        if let Some(domain) = req.domain.as_deref() {
+            match domains::doh_query(domain, "A").await {
+                Ok(v) => {
+                    let has = v
+                        .get("Answer")
+                        .and_then(|a| a.as_array())
+                        .map(|a| !a.is_empty())
+                        .unwrap_or(false);
+                    if has {
+                        checks.push((0, format!("DNS {domain}: GREEN — A record resolves")));
+                    } else {
+                        checks.push((1, format!("DNS {domain}: DEGRADED — no A record")));
+                    }
+                }
+                Err(e) => checks.push((2, format!("DNS {domain}: RED — {e}"))),
+            }
+        }
+
+        let worst = checks.iter().map(|(r, _)| *r).max().unwrap_or(0);
+        let rollup = match worst {
+            0 => "GREEN",
+            1 => "DEGRADED",
+            _ => "RED",
+        };
+        let mut out = format!("# stack_status: {rollup}\n\n");
+        for (_, line) in &checks {
+            out.push_str(&format!("  {line}\n"));
+        }
+        out.push_str(
+            "\n(engine build/test health stands in for deploy status — this org runs no \
+             k8s workload. Run self_test for credential coverage.)\n",
+        );
+        Ok(truncate_output(out))
+    }
 }
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for DesMcp {
+    async fn list_resources(
+        &self,
+        _req: Option<PaginatedRequestParams>,
+        _ctx: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, McpError> {
+        Ok(ListResourcesResult::with_all_items(catalog::resources()))
+    }
+
+    async fn read_resource(
+        &self,
+        req: ReadResourceRequestParams,
+        _ctx: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResult, McpError> {
+        catalog::read(&req.uri).ok_or_else(|| {
+            McpError::resource_not_found(format!("no such resource: {}", req.uri), None)
+        })
+    }
+
+    async fn list_prompts(
+        &self,
+        _req: Option<PaginatedRequestParams>,
+        _ctx: RequestContext<RoleServer>,
+    ) -> Result<ListPromptsResult, McpError> {
+        Ok(ListPromptsResult::with_all_items(catalog::prompts()))
+    }
+
+    async fn get_prompt(
+        &self,
+        req: GetPromptRequestParams,
+        _ctx: RequestContext<RoleServer>,
+    ) -> Result<GetPromptResult, McpError> {
+        catalog::get_prompt(&req.name, &req.arguments)
+            .ok_or_else(|| McpError::invalid_params(format!("no such prompt: {}", req.name), None))
+    }
+
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::new(
-                env!("CARGO_PKG_NAME"),
-                env!("CARGO_PKG_VERSION"),
-            ))
-            .with_instructions(
-                "Tools for the discrete-event-systems org (DES engine work). The engine \
+        ServerInfo::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .enable_prompts()
+                .build(),
+        )
+        .with_server_info(Implementation::new(
+            env!("CARGO_PKG_NAME"),
+            env!("CARGO_PKG_VERSION"),
+        ))
+        .with_instructions(
+            "Tools for the discrete-event-systems org (DES engine work). The engine \
                  repos still live LOCALLY under DES_ROOT (default ~/codes/ores) and are \
                  migrating into the GitHub org — org_overview and org_map explain the \
                  layout. Use search_code instead of raw grep (skips target/ and \
@@ -766,6 +1026,6 @@ impl ServerHandler for DesMcp {
                  cloudflare_* needs CLOUDFLARE_API_TOKEN; Squarespace-registered domains \
                  are covered via domain_info (RDAP) + dns_lookup (DoH). All tools are \
                  read-only or build-only.",
-            )
+        )
     }
 }

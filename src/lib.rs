@@ -8,11 +8,15 @@
 //! history rewrites, no write-capable cloud tools). stdout is the MCP wire;
 //! logging goes to stderr only.
 
+pub mod catalog;
 pub mod cloudflare;
 pub mod domains;
+pub mod fiducia;
 pub mod github;
 pub mod models;
 pub mod org_map;
+pub mod selftest;
 pub mod server;
+pub mod spec;
 pub mod supabase;
 pub mod util;

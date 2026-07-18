@@ -24,9 +24,11 @@ stderr.
 ## Build & test
 
 ```sh
-cargo test             # 30 unit tests + 7 stdio integration tests (hermetic, no network)
+cargo test             # 44 unit tests + 10 stdio integration tests (hermetic, no network)
 cargo build --release  # binary: target/release/des-mcp-server
 ```
+
+See [`TESTING.md`](TESTING.md) for the full automated + live-wire test matrix.
 
 The integration tests spawn the real binary, speak MCP JSON-RPC over stdio
 against a temp org root (`DES_ROOT`), and cover happy paths plus error paths
@@ -63,6 +65,7 @@ claude mcp add des -- ~/codes/discrete-event-systems/des-mcp-server.rs/target/re
 | tool | what it does |
 |---|---|
 | `sim_models` | Inventory of runnable models/scenarios: des-engine's 95 JSON specs (`examples/*.json`, run via `npm run from-json`), the Rust engine's cargo examples + ~142 demo bins (`src/bin/main_*.rs`) + committed `data/`, and the legacy soccer bins. Repo + substring filters. |
+| `sim_model_inspect` | **DES-unique.** Parse ONE JSON model spec without running it and report its schema, the model/citizen it drives, parameters, runtime knobs, tags, and — for the universal-math DES documents — the math payload (state variables, equations, block graph). Path validated + parse-only. |
 | `engine_docs` | The engine core abstractions from the real code: FEL scheduler `Engine<W>` (`schedule_at`/`schedule_after`/`run_until`/`now`), the model-citizen contract (`CitizenRegistry`, `ModelDescriptor`, `RunArtifact`), and the TS station/tick kernel (`DESStation`, `TimeSteppedStation` — deliberately no global FEL). |
 | `engine_comparison` | Legacy-vs-current: the uta-phd → des-engine (TS) → discrete-event-system.rs (Rust) lineage, and why `old-outmoded-engine.rs` (`soccer_engine`) is legacy (superseded by akrion-sim). |
 | `org_map` | Org/repo map: repo locations today, migration plan, build entry points, shared ORESoftware infra (k8s GitOps, dpm, Cloudflare/Squarespace, fiducia, the MASH rule). |
@@ -74,7 +77,8 @@ claude mcp add des -- ~/codes/discrete-event-systems/des-mcp-server.rs/target/re
 | `telemetry_docs` | The org's client→Supabase streaming pattern: `supabase.rpc('ingest_des_client_log_snapshot' / 'ingest_des_client_log_entries')` via supabase-js (WASM/TS sim visualizers) or supabase_flutter (Dart), tables, RLS, realtime, rate limits. |
 | `client_log_sessions` | Recent snapshots from `des_client_log_snapshots`: session, sim id, env, entry count, trigger, user. |
 | `tail_client_logs` | Entries from `des_client_log_entries` for one session, oldest→newest, optional level filter. |
-| `client_error_summary` | Error/warn counts grouped by message over a look-back window (default 24h). |
+| `client_log_trace` | Full ordered entry timeline for ONE session, oldest→newest, tagged with level/url/sim_id/category — the "walk this session end to end" root-cause view. |
+| `client_error_summary` | Error/warn counts over a look-back window (default 24h), grouped by message or (via `group_by`) by url / sim_id / user_id / session_id / level to localize a failure to a route or model. |
 
 The read tools need `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` (reads are
 RLS-restricted to service_role; clients only ever hold the anon key, which is
@@ -103,6 +107,36 @@ with `dpm`, the org's declarative migration tool).
 and has no public DNS API, so those are covered by the registrar-agnostic
 tools (`domain_info` / `dns_lookup`).
 
+### Readiness & ops
+
+| tool | what it does |
+|---|---|
+| `stack_status` | **Flagship aggregate.** Runs the engine build check + latest GitHub Actions CI + (optional) apex DNS in one call and returns a compact **GREEN / DEGRADED / RED** rollup naming every failing check. This org has no k8s workload, so engine build/test health stands in for deploy status. |
+| `self_test` | Offline capability report: which env vars/creds are present (values **never** shown) and therefore which tool families are LIVE vs DEGRADED, plus which DES repos are on disk. The fast "what is configured" check. |
+| `fiducia_status` | Read-only [fiducia.cloud](https://fiducia.cloud) (shared secrets/locks plane) status: which required secrets are present locally, and — when `FIDUCIA_URL` + `FIDUCIA_TOKEN` are set — a health/lease endpoint probe (10s timeout, graceful "unreachable" if down). |
+
+## Resources
+
+Read without a tool call via the MCP `resources/list` + `resources/read` API:
+
+| uri | what it is |
+|---|---|
+| `orgmap://discrete-event-systems` | The org/repo map (same content as `org_map`). |
+| `docs://engine` | Engine core abstractions (FEL `Engine<W>`, model citizens, TS station/tick kernel). |
+| `docs://engine-comparison` | The uta-phd → des-engine (TS) → discrete-event-system.rs (Rust) lineage. |
+| `docs://telemetry` | The client→Supabase telemetry streaming pattern. |
+| `schema://telemetry` | The declarative `supabase/schema.sql` (tables, ingest RPCs, RLS, realtime). |
+
+## Prompts
+
+Canned, parameterized workflows via `prompts/list` + `prompts/get`:
+
+| prompt | args | what it steers |
+|---|---|---|
+| `engine_readiness` | — | Assess the engine's shippability via `stack_status` / `cargo_check` / `engine_tests` / `ci_status` (calls out the ~164 pre-existing legacy failures — use set-difference vs a baseline). |
+| `triage_client_errors` | `hours?`, `environment?` | Triage what is breaking in the sim visualizers via `client_error_summary` (grouped by url/sim_id) + `client_log_trace`. |
+| `domain_audit` | `domain` | Audit a domain via `domain_info` + `dns_lookup` + `tls_cert_check`. |
+
 ## Environment variables
 
 | var | default | used by |
@@ -111,4 +145,8 @@ tools (`domain_info` / `dns_lookup`).
 | `SUPABASE_URL` | — (required for telemetry reads) | `client_log_sessions`, `tail_client_logs`, `client_error_summary` |
 | `SUPABASE_SERVICE_ROLE_KEY` | — (required for telemetry reads) | same |
 | `CLOUDFLARE_API_TOKEN` | — (required for `cloudflare_*`) | `cloudflare_zones`, `cloudflare_dns_records` |
-| `GITHUB_TOKEN` / `GH_TOKEN` | — (optional) | `ci_status` |
+| `GITHUB_TOKEN` / `GH_TOKEN` | — (optional) | `ci_status`, `stack_status` |
+| `FIDUCIA_URL` | — (optional) | `fiducia_status` endpoint probe |
+| `FIDUCIA_TOKEN` | — (optional) | `fiducia_status` endpoint probe |
+
+`self_test` reports the presence of each of these (never their values).
