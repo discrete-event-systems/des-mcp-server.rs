@@ -49,8 +49,10 @@ org over stdio. See README.md for the tool table and env configuration.
   tables, ingest RPCs, RLS, and realtime publication. Keep the RPC/table
   names in sync with `org_map::TELEMETRY_DOCS` and the README.
 - `tests/stdio_integration.rs` — hermetic MCP JSON-RPC tests against a temp
-  `DES_ROOT`; they strip SUPABASE/CLOUDFLARE env vars so they never touch
-  real credentials or the network.
+  `DES_ROOT`; they strip SUPABASE/CLOUDFLARE/FIDUCIA env vars so they never
+  touch real credentials or the network. Cover tools, resources, and prompts.
+- `TESTING.md` — the automated + live-wire test matrix (run the live wire
+  smoke test after any change to the tool surface).
 
 ## Checks
 
