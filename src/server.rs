@@ -834,6 +834,119 @@ impl DesMcp {
             cloudflare::format_records(&body)
         )))
     }
+
+    // ------------------------------------------------------ readiness / ops
+
+    #[tool(
+        description = "Offline capability report: which env vars/creds are present (VALUES NEVER SHOWN) and therefore which tool families are LIVE vs DEGRADED, plus which DES repos are on disk under DES_ROOT. No network, no subprocess — the fast 'what is configured' check before running live tools."
+    )]
+    async fn self_test(&self) -> Result<String, String> {
+        Ok(truncate_output(selftest::report(&self.root)))
+    }
+
+    #[tool(
+        description = "Read-only fiducia.cloud (shared secrets/locks plane) status: reports which of this org's required secrets are present locally (presence only, never values) and — when FIDUCIA_URL + FIDUCIA_TOKEN are set — probes the fiducia health/lease endpoint (10s timeout, graceful 'unreachable' if down). Ties the org into the shared secrets plane."
+    )]
+    async fn fiducia_status(&self) -> Result<String, String> {
+        let mut out = String::from("# fiducia status\n\n");
+        out.push_str(&fiducia::local_secret_report());
+        out.push_str("\n## fiducia endpoint (lock/lease health)\n");
+        match fiducia::env() {
+            Err(e) => out.push_str(&format!("  {e}\n")),
+            Ok(env) => {
+                out.push_str(&fiducia::probe(&env).await);
+                out.push('\n');
+            }
+        }
+        Ok(truncate_output(out))
+    }
+
+    #[tool(
+        description = "Flagship aggregate readiness: runs the DES engine build check + latest GitHub Actions CI + (optional) apex DNS in one call and returns a compact GREEN/DEGRADED/RED rollup naming every failing check. This org has NO k8s workload, so engine build/test health stands in for deploy status. The engine build honors timeout_secs (default 300)."
+    )]
+    async fn stack_status(
+        &self,
+        Parameters(req): Parameters<StackStatusReq>,
+    ) -> Result<String, String> {
+        // rank: 0 GREEN, 1 DEGRADED, 2 RED. rollup = worst.
+        let mut checks: Vec<(u8, String)> = Vec::new();
+
+        // 1) engine build health (stands in for deploy status — no k8s here).
+        match self.rust_repo_path("discrete-event-system.rs") {
+            Err(e) => checks.push((1, format!("engine build: DEGRADED — {e}"))),
+            Ok(dir) => {
+                let timeout = Duration::from_secs(req.timeout_secs.unwrap_or(300).clamp(30, 1200));
+                match run_cmd(Some(&dir), "cargo", &["check"], timeout).await {
+                    Ok((true, _)) => {
+                        checks.push((0, "engine build: GREEN — cargo check OK".to_string()))
+                    }
+                    Ok((false, text)) => {
+                        let first = text
+                            .lines()
+                            .find(|l| l.trim_start().starts_with("error"))
+                            .unwrap_or("cargo check failed")
+                            .trim();
+                        checks.push((2, format!("engine build: RED — {first}")));
+                    }
+                    Err(e) => checks.push((1, format!("engine build: DEGRADED — {e}"))),
+                }
+            }
+        }
+
+        // 2) latest CI across the org.
+        match github::ci_status(1).await {
+            Ok(text) => {
+                let failed = text.contains("/failure") || text.contains("/timed_out");
+                if text.contains("no repos visible") {
+                    checks.push((
+                        1,
+                        "CI: DEGRADED — no repos visible in github.com/discrete-event-systems yet"
+                            .to_string(),
+                    ));
+                } else if failed {
+                    checks.push((2, "CI: RED — a latest workflow run failed (see ci_status)".to_string()));
+                } else {
+                    checks.push((0, "CI: GREEN — latest runs not failing".to_string()));
+                }
+            }
+            Err(e) => checks.push((1, format!("CI: DEGRADED — {e}"))),
+        }
+
+        // 3) optional apex DNS reachability.
+        if let Some(domain) = req.domain.as_deref() {
+            match domains::doh_query(domain, "A").await {
+                Ok(v) => {
+                    let has = v
+                        .get("Answer")
+                        .and_then(|a| a.as_array())
+                        .map(|a| !a.is_empty())
+                        .unwrap_or(false);
+                    if has {
+                        checks.push((0, format!("DNS {domain}: GREEN — A record resolves")));
+                    } else {
+                        checks.push((1, format!("DNS {domain}: DEGRADED — no A record")));
+                    }
+                }
+                Err(e) => checks.push((2, format!("DNS {domain}: RED — {e}"))),
+            }
+        }
+
+        let worst = checks.iter().map(|(r, _)| *r).max().unwrap_or(0);
+        let rollup = match worst {
+            0 => "GREEN",
+            1 => "DEGRADED",
+            _ => "RED",
+        };
+        let mut out = format!("# stack_status: {rollup}\n\n");
+        for (_, line) in &checks {
+            out.push_str(&format!("  {line}\n"));
+        }
+        out.push_str(
+            "\n(engine build/test health stands in for deploy status — this org runs no \
+             k8s workload. Run self_test for credential coverage.)\n",
+        );
+        Ok(truncate_output(out))
+    }
 }
 
 #[tool_handler(router = self.tool_router)]
