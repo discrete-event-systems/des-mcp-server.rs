@@ -652,11 +652,20 @@ impl DesMcp {
         Parameters(req): Parameters<ErrorSummaryReq>,
     ) -> Result<String, String> {
         let hours = req.hours.unwrap_or(24).clamp(1, 720);
+        let group_by = req.group_by.as_deref().unwrap_or("message");
+        if !supabase::GROUP_FIELDS.contains(&group_by) {
+            return Err(format!(
+                "invalid group_by {group_by:?} — one of {:?}",
+                supabase::GROUP_FIELDS
+            ));
+        }
         let since = (chrono::Utc::now() - chrono::Duration::hours(hours as i64))
             .format("%Y-%m-%dT%H:%M:%SZ")
             .to_string();
+        // Always select the field we group by (plus level/message for context).
+        let select = format!("level,message,{group_by}");
         let mut query = vec![
-            ("select".to_string(), "level,message".to_string()),
+            ("select".to_string(), select),
             ("level".to_string(), "in.(error,warn)".to_string()),
             ("created_at".to_string(), format!("gte.{since}")),
             ("limit".to_string(), "1000".to_string()),
@@ -666,10 +675,41 @@ impl DesMcp {
             query.push(("environment".to_string(), format!("eq.{env}")));
         }
         let rows = supabase::rest_get(supabase::ENTRIES_TABLE, &query).await?;
-        Ok(truncate_output(format!(
-            "error/warn entries in the last {hours}h ({} sampled, cap 1000):\n{}",
-            rows.len(),
+        let grouped = if group_by == "message" {
             supabase::summarize_errors(&rows)
+        } else {
+            supabase::summarize_field(&rows, group_by)
+        };
+        Ok(truncate_output(format!(
+            "error/warn entries in the last {hours}h grouped by {group_by} ({} sampled, cap 1000):\n{grouped}",
+            rows.len(),
+        )))
+    }
+
+    #[tool(
+        description = "Full ordered entry timeline for ONE client session (des_client_log_entries), oldest→newest, with level/url/sim_id/category tags — the 'walk this session end to end' view for root-causing a client error. Needs SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY. Read-only."
+    )]
+    async fn client_log_trace(
+        &self,
+        Parameters(req): Parameters<ClientLogTraceReq>,
+    ) -> Result<String, String> {
+        safe_pg_filter_value(&req.session_id, "session_id")?;
+        let limit = req.limit.unwrap_or(300).clamp(1, 1000);
+        let query = vec![
+            (
+                "select".to_string(),
+                "client_timestamp,level,message,url,sim_id,category".to_string(),
+            ),
+            ("session_id".to_string(), format!("eq.{}", req.session_id)),
+            ("order".to_string(), "client_timestamp.asc".to_string()),
+            ("limit".to_string(), limit.to_string()),
+        ];
+        let rows = supabase::rest_get(supabase::ENTRIES_TABLE, &query).await?;
+        Ok(truncate_output(format!(
+            "trace for session {} ({} entry/entries, oldest first):\n{}",
+            req.session_id,
+            rows.len(),
+            supabase::format_trace(&rows)
         )))
     }
 
