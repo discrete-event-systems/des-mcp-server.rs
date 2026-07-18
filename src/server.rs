@@ -148,6 +148,37 @@ pub struct ErrorSummaryReq {
     hours: Option<u32>,
     /// Filter by environment.
     environment: Option<String>,
+    /// Group the error/warn entries by this field instead of message:
+    /// one of message (default), url, sim_id, user_id, session_id, level.
+    /// Use url/sim_id to localize a failure to a route or model.
+    group_by: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct ClientLogTraceReq {
+    /// Session id from client_log_sessions.
+    session_id: String,
+    /// Max entries (default 300, max 1000).
+    limit: Option<u32>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct SimModelInspectReq {
+    /// DES repo the spec lives in (default "des-engine", which holds the 95
+    /// JSON model specs under examples/).
+    repo: Option<String>,
+    /// Path to the JSON spec RELATIVE to the repo root, e.g.
+    /// "examples/blackjack-mc.json". No absolute paths, no "..".
+    file: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct StackStatusReq {
+    /// Also probe this apex domain's A record (e.g. the org's marketing/app
+    /// host). Optional — omit to skip the DNS check.
+    domain: Option<String>,
+    /// Timeout (seconds) for the engine build check (default 300, max 1200).
+    timeout_secs: Option<u64>,
 }
 
 const LOG_LEVELS: &[&str] = &["error", "warn", "info", "debug", "trace"];
