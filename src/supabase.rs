@@ -151,10 +151,108 @@ pub fn summarize_errors(rows: &[Value]) -> String {
         .join("\n")
 }
 
+/// Fields the triage tools may group error/warn entries by (beyond message).
+/// Restricting to this allowlist keeps the `select=` and grouping stable and
+/// prevents an arbitrary column name from reaching PostgREST.
+pub const GROUP_FIELDS: &[&str] = &["message", "url", "sim_id", "user_id", "session_id", "level"];
+
+/// Group rows by a single field's value, counts descending. Used by
+/// client_error_summary's `group_by` to localize failures to a route/model/
+/// session/user rather than only a message.
+pub fn summarize_field(rows: &[Value], field: &str) -> String {
+    if rows.is_empty() {
+        return "(no error/warn entries in the window)".to_string();
+    }
+    let mut counts: BTreeMap<String, u64> = BTreeMap::new();
+    for r in rows {
+        let mut key = s(r, field).to_string();
+        if key.len() > 160 {
+            let mut cut = 160;
+            while !key.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            key.truncate(cut);
+            key.push('…');
+        }
+        *counts.entry(key).or_insert(0) += 1;
+    }
+    let mut items: Vec<_> = counts.into_iter().collect();
+    items.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    items
+        .into_iter()
+        .take(100)
+        .map(|(key, n)| format!("  {n:5}×  {key}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// One session's full ordered timeline (client_log_trace): richer than a tail
+/// — includes level, url, sim_id, and category so a session can be walked
+/// end-to-end. Rows must already be chronological (oldest first).
+pub fn format_trace(rows: &[Value]) -> String {
+    if rows.is_empty() {
+        return "(no entries for this session)".to_string();
+    }
+    rows.iter()
+        .map(|r| {
+            let mut line = format!(
+                "  {}  [{}] {}",
+                s(r, "client_timestamp"),
+                s(r, "level"),
+                s(r, "message"),
+            );
+            let sim = r.get("sim_id").and_then(Value::as_str).unwrap_or("");
+            let url = r.get("url").and_then(Value::as_str).unwrap_or("");
+            let cat = r.get("category").and_then(Value::as_str).unwrap_or("");
+            let mut tags = Vec::new();
+            if !sim.is_empty() {
+                tags.push(format!("sim={sim}"));
+            }
+            if !cat.is_empty() {
+                tags.push(format!("cat={cat}"));
+            }
+            if !url.is_empty() {
+                tags.push(format!("url={url}"));
+            }
+            if !tags.is_empty() {
+                line.push_str(&format!("\n      {}", tags.join("  ")));
+            }
+            line
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn summarize_field_groups_by_url_and_sorts() {
+        let mk = |url: &str| json!({"url": url, "level": "error", "message": "x"});
+        let rows = vec![mk("/sim/a"), mk("/sim/a"), mk("/sim/b")];
+        let out = summarize_field(&rows, "url");
+        let first = out.lines().next().unwrap();
+        assert!(first.contains("2×"));
+        assert!(first.contains("/sim/a"));
+        assert_eq!(summarize_field(&[], "url"), "(no error/warn entries in the window)");
+    }
+
+    #[test]
+    fn format_trace_includes_sim_and_url_tags() {
+        let rows = vec![json!({
+            "client_timestamp": "2026-07-17T01:02:03Z",
+            "level": "error", "message": "boom",
+            "sim_id": "tiger-pomdp", "url": "/viz", "category": "render"
+        })];
+        let out = format_trace(&rows);
+        assert!(out.contains("[error] boom"));
+        assert!(out.contains("sim=tiger-pomdp"));
+        assert!(out.contains("url=/viz"));
+        assert!(out.contains("cat=render"));
+        assert_eq!(format_trace(&[]), "(no entries for this session)");
+    }
 
     #[test]
     fn env_error_is_actionable_when_unset() {
