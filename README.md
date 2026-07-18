@@ -24,9 +24,11 @@ stderr.
 ## Build & test
 
 ```sh
-cargo test             # 30 unit tests + 7 stdio integration tests (hermetic, no network)
+cargo test             # 44 unit tests + 10 stdio integration tests (hermetic, no network)
 cargo build --release  # binary: target/release/des-mcp-server
 ```
+
+See [`TESTING.md`](TESTING.md) for the full automated + live-wire test matrix.
 
 The integration tests spawn the real binary, speak MCP JSON-RPC over stdio
 against a temp org root (`DES_ROOT`), and cover happy paths plus error paths
