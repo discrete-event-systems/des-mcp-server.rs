@@ -107,6 +107,36 @@ with `dpm`, the org's declarative migration tool).
 and has no public DNS API, so those are covered by the registrar-agnostic
 tools (`domain_info` / `dns_lookup`).
 
+### Readiness & ops
+
+| tool | what it does |
+|---|---|
+| `stack_status` | **Flagship aggregate.** Runs the engine build check + latest GitHub Actions CI + (optional) apex DNS in one call and returns a compact **GREEN / DEGRADED / RED** rollup naming every failing check. This org has no k8s workload, so engine build/test health stands in for deploy status. |
+| `self_test` | Offline capability report: which env vars/creds are present (values **never** shown) and therefore which tool families are LIVE vs DEGRADED, plus which DES repos are on disk. The fast "what is configured" check. |
+| `fiducia_status` | Read-only [fiducia.cloud](https://fiducia.cloud) (shared secrets/locks plane) status: which required secrets are present locally, and — when `FIDUCIA_URL` + `FIDUCIA_TOKEN` are set — a health/lease endpoint probe (10s timeout, graceful "unreachable" if down). |
+
+## Resources
+
+Read without a tool call via the MCP `resources/list` + `resources/read` API:
+
+| uri | what it is |
+|---|---|
+| `orgmap://discrete-event-systems` | The org/repo map (same content as `org_map`). |
+| `docs://engine` | Engine core abstractions (FEL `Engine<W>`, model citizens, TS station/tick kernel). |
+| `docs://engine-comparison` | The uta-phd → des-engine (TS) → discrete-event-system.rs (Rust) lineage. |
+| `docs://telemetry` | The client→Supabase telemetry streaming pattern. |
+| `schema://telemetry` | The declarative `supabase/schema.sql` (tables, ingest RPCs, RLS, realtime). |
+
+## Prompts
+
+Canned, parameterized workflows via `prompts/list` + `prompts/get`:
+
+| prompt | args | what it steers |
+|---|---|---|
+| `engine_readiness` | — | Assess the engine's shippability via `stack_status` / `cargo_check` / `engine_tests` / `ci_status` (calls out the ~164 pre-existing legacy failures — use set-difference vs a baseline). |
+| `triage_client_errors` | `hours?`, `environment?` | Triage what is breaking in the sim visualizers via `client_error_summary` (grouped by url/sim_id) + `client_log_trace`. |
+| `domain_audit` | `domain` | Audit a domain via `domain_info` + `dns_lookup` + `tls_cert_check`. |
+
 ## Environment variables
 
 | var | default | used by |
