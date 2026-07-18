@@ -77,7 +77,8 @@ claude mcp add des -- ~/codes/discrete-event-systems/des-mcp-server.rs/target/re
 | `telemetry_docs` | The org's client→Supabase streaming pattern: `supabase.rpc('ingest_des_client_log_snapshot' / 'ingest_des_client_log_entries')` via supabase-js (WASM/TS sim visualizers) or supabase_flutter (Dart), tables, RLS, realtime, rate limits. |
 | `client_log_sessions` | Recent snapshots from `des_client_log_snapshots`: session, sim id, env, entry count, trigger, user. |
 | `tail_client_logs` | Entries from `des_client_log_entries` for one session, oldest→newest, optional level filter. |
-| `client_error_summary` | Error/warn counts grouped by message over a look-back window (default 24h). |
+| `client_log_trace` | Full ordered entry timeline for ONE session, oldest→newest, tagged with level/url/sim_id/category — the "walk this session end to end" root-cause view. |
+| `client_error_summary` | Error/warn counts over a look-back window (default 24h), grouped by message or (via `group_by`) by url / sim_id / user_id / session_id / level to localize a failure to a route or model. |
 
 The read tools need `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` (reads are
 RLS-restricted to service_role; clients only ever hold the anon key, which is
