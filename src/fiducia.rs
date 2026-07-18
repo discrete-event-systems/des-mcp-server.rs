@@ -20,6 +20,7 @@ pub const REQUIRED_SECRETS: &[(&str, &str)] = &[
     ("CLOUDFLARE_API_TOKEN", "cloudflare_* domain tools"),
 ];
 
+#[derive(Debug)]
 pub struct FiduciaEnv {
     pub url: String,
     pub token: String,
