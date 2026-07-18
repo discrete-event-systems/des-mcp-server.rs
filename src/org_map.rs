@@ -13,10 +13,17 @@ diagrams).
 
 ## Repo locations — IMPORTANT
 
-GitHub org github.com/discrete-event-systems currently holds ONLY
-des-mcp-server.rs (this server). The engine code still lives in LOCAL
-checkouts under the org root (default ~/codes/ores, override with DES_ROOT)
-and will migrate into the org over time:
+GitHub org github.com/discrete-event-systems currently holds:
+
+- des-mcp-server.rs — this read-only/build-only stdio MCP server.
+- des-web.rs — the dynamic MASH application server described below.
+- discrete-event-systems.github.io — the public Astro organization site,
+  deployed through GitHub Actions to https://discrete-event-systems.github.io.
+  It has separate `/simulations/` and `/games/` galleries and embeds only
+  first-party, self-contained artifacts in sandboxed browser frames.
+
+The engine code still lives in local checkouts under the org root (default
+~/codes/ores, override with DES_ROOT) and can migrate into the org over time:
 
 - discrete-event-system.rs — CURRENT Rust engine. Crate `des_engine`
   (edition 2021, rlib/cdylib/staticlib). JSON-first SDK: machine-readable
@@ -54,6 +61,13 @@ and will migrate into the org over time:
 
 ## Build / test entry points
 
+- discrete-event-systems.github.io: `npm ci`, `npm run build` (Astro check +
+  static build); GitHub Pages deploys only from `main`.
+- des-mcp-server.rs: `cargo fmt --check`, clippy with warnings denied,
+  `cargo test`, `cargo build --release`.
+- des-web.rs: `cargo fmt --check`, clippy with warnings denied,
+  `cargo build --locked`, `cargo test --locked`; schema CI applies pg-defs +
+  the overlay + seed to an ephemeral Postgres 17 database.
 - discrete-event-system.rs: `cargo build --release`,
   `cargo test --all-targets --all-features`, clippy -D warnings, fmt.
 - des-engine: `npm run build` (tsc); per-domain `npm run test-*` /
@@ -246,6 +260,10 @@ mod tests {
             "discrete-event-system.rs",
             "des-engine",
             "old-outmoded-engine.rs",
+            "des-mcp-server.rs",
+            "discrete-event-systems.github.io",
+            "/simulations/",
+            "/games/",
             "uta-phd",
             "DES_ROOT",
             "migrate",
