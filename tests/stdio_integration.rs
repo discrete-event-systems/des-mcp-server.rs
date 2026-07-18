@@ -464,10 +464,7 @@ fn sim_model_inspect_parses_a_spec_and_rejects_traversal() {
     assert!(text.contains("tags: pomdp, planning"));
 
     // path traversal must be rejected before any read
-    let (err, text) = mcp.call_tool(
-        "sim_model_inspect",
-        json!({"file": "../../../etc/passwd"}),
-    );
+    let (err, text) = mcp.call_tool("sim_model_inspect", json!({"file": "../../../etc/passwd"}));
     assert!(err, "traversal should be rejected");
     assert!(text.contains("invalid spec path") || text.contains("no such spec"));
 
@@ -498,7 +495,10 @@ fn resources_and_prompts_are_advertised_and_readable() {
         "docs://engine",
         "schema://telemetry",
     ] {
-        assert!(uris.iter().any(|u| u == want), "missing resource {want}: {uris:?}");
+        assert!(
+            uris.iter().any(|u| u == want),
+            "missing resource {want}: {uris:?}"
+        );
     }
 
     // resources/read returns the real schema.sql
@@ -507,7 +507,10 @@ fn resources_and_prompts_are_advertised_and_readable() {
         .pointer("/result/contents/0/text")
         .and_then(Value::as_str)
         .unwrap_or("");
-    assert!(text.contains("des_client_log_snapshots"), "schema body: {text:.80}");
+    assert!(
+        text.contains("des_client_log_snapshots"),
+        "schema body: {text:.80}"
+    );
 
     // unknown uri => protocol error
     let resp = mcp.request("resources/read", json!({"uri": "nope://x"}));
@@ -524,7 +527,10 @@ fn resources_and_prompts_are_advertised_and_readable() {
         .map(str::to_string)
         .collect();
     for want in ["engine_readiness", "triage_client_errors", "domain_audit"] {
-        assert!(names.iter().any(|n| n == want), "missing prompt {want}: {names:?}");
+        assert!(
+            names.iter().any(|n| n == want),
+            "missing prompt {want}: {names:?}"
+        );
     }
 
     let resp = mcp.request(
@@ -568,10 +574,7 @@ fn ops_tools_report_offline() {
     assert!(text.contains("SUPABASE_URL"));
 
     // invalid group_by on the summary is rejected before any network I/O
-    let (err, text) = mcp.call_tool(
-        "client_error_summary",
-        json!({"group_by": "drop table"}),
-    );
+    let (err, text) = mcp.call_tool("client_error_summary", json!({"group_by": "drop table"}));
     assert!(err);
     assert!(text.contains("invalid group_by"));
 

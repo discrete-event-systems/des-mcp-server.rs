@@ -39,6 +39,18 @@ and will migrate into the org over time:
 - des — uta-phd coursework monorepo (package alex_phd), the academic
   origin of the DES entity/station vocabulary. Focus subtree:
   courses/hdm-fall-2022/des. Mostly research material, not a build target.
+- des-web.rs (~/codes/discrete-event-systems/des-web.rs) — this org's MASH
+  web server (maud + axum + Supabase GoTrue + SeaORM, NOT sqlx + htmx),
+  serving DES sim/game pages COPIED (not ripped out) from
+  ORESoftware/k8s-cluster — the originals keep running in-cluster. Routes:
+  `/` sim catalog, `/soccer` tournaments + `/soccer/planner` (proxies to a
+  live des-rs via DES_UPSTREAM_URL), `/routing` an in-process VRP/TSP
+  dashboard, `/track3t` and `/elevator/player` self-contained vendored
+  artifact players, `/elevator` a live FEL dispatch-learning UI. Schema is
+  the pg-defs contract (ORESoftware/k8s-libs-and-shared-defs, vendored as
+  the private `libs/` submodule) plus a des-web overlay
+  (schema/des-web.sql: des_web_sims, des_web_routing_solves), migrated with
+  dpm like every other org service (scripts/dpm.sh diff|verify|review|apply).
 
 ## Build / test entry points
 
