@@ -250,8 +250,25 @@ mod tests {
             "DES_ROOT",
             "migrate",
             "ORESoftware/k8s-cluster",
+            "ORESoftware/k8s-libs-and-shared-defs",
             "dpm",
             "MASH",
+        ] {
+            assert!(ORG_MAP.contains(needle), "org map missing {needle:?}");
+        }
+    }
+
+    #[test]
+    fn org_map_covers_des_web_the_mash_server() {
+        for needle in [
+            "des-web.rs",
+            "maud",
+            "axum",
+            "SeaORM",
+            "htmx",
+            "des_web_sims",
+            "des_web_routing_solves",
+            "scripts/dpm.sh",
         ] {
             assert!(ORG_MAP.contains(needle), "org map missing {needle:?}");
         }
