@@ -145,4 +145,8 @@ Canned, parameterized workflows via `prompts/list` + `prompts/get`:
 | `SUPABASE_URL` | — (required for telemetry reads) | `client_log_sessions`, `tail_client_logs`, `client_error_summary` |
 | `SUPABASE_SERVICE_ROLE_KEY` | — (required for telemetry reads) | same |
 | `CLOUDFLARE_API_TOKEN` | — (required for `cloudflare_*`) | `cloudflare_zones`, `cloudflare_dns_records` |
-| `GITHUB_TOKEN` / `GH_TOKEN` | — (optional) | `ci_status` |
+| `GITHUB_TOKEN` / `GH_TOKEN` | — (optional) | `ci_status`, `stack_status` |
+| `FIDUCIA_URL` | — (optional) | `fiducia_status` endpoint probe |
+| `FIDUCIA_TOKEN` | — (optional) | `fiducia_status` endpoint probe |
+
+`self_test` reports the presence of each of these (never their values).
