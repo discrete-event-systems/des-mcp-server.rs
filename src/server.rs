@@ -5,10 +5,18 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use rmcp::ErrorData as McpError;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{Implementation, ServerCapabilities, ServerInfo};
+use rmcp::model::{
+    GetPromptRequestParams, GetPromptResult, Implementation, ListPromptsResult,
+    ListResourcesResult, PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResult,
+    ServerCapabilities, ServerInfo,
+};
+use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ServerHandler, tool, tool_handler, tool_router};
+
+use crate::catalog;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
