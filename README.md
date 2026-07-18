@@ -155,3 +155,11 @@ Canned, parameterized workflows via `prompts/list` + `prompts/get`:
 | `FIDUCIA_TOKEN` | — (optional) | `fiducia_status` endpoint probe |
 
 `self_test` reports the presence of each of these (never their values).
+
+## OpenTelemetry
+
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` to export explicit OTLP/gRPC traces and
+metrics; use `RUST_LOG` for filtering. Each MCP tool call gets a named span,
+call counter, duration histogram, and error flag. Arguments, results, and
+secrets are never recorded. JSON logs stay on stderr and stdout stays reserved
+for MCP framing. Instrumentation is explicit Rust code—no monkey patching.

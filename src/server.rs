@@ -201,7 +201,7 @@ impl DesMcp {
     pub fn new() -> Self {
         Self {
             root: util::org_root(),
-            tool_router: Self::tool_router(),
+            tool_router: crate::telemetry::instrument_tool_router(Self::tool_router()),
         }
     }
 
