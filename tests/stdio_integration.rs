@@ -162,7 +162,18 @@ fn temp_org(tag: &str) -> PathBuf {
     // fake original TS engine with JSON model specs
     let ts = root.join("des-engine");
     std::fs::create_dir_all(ts.join("examples")).unwrap();
-    std::fs::write(ts.join("examples/tiger-pomdp.json"), "{}\n").unwrap();
+    std::fs::write(
+        ts.join("examples/tiger-pomdp.json"),
+        r#"{
+            "$schema": "des/model-spec/v1",
+            "model": "tiger-pomdp",
+            "description": "Classic tiger POMDP",
+            "parameters": {"discount": 0.95, "horizon": 100},
+            "runtime": {"seed": 3},
+            "metadata": {"tags": ["pomdp", "planning"]}
+        }"#,
+    )
+    .unwrap();
     std::fs::write(ts.join("examples/blackjack-mc.json"), "{}\n").unwrap();
     std::fs::write(ts.join("package.json"), "{\"name\": \"uta-phd-des\"}\n").unwrap();
     git_in(&ts, &["init", "-q", "-b", "main"]);
