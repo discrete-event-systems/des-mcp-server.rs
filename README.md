@@ -65,6 +65,7 @@ claude mcp add des -- ~/codes/discrete-event-systems/des-mcp-server.rs/target/re
 | tool | what it does |
 |---|---|
 | `sim_models` | Inventory of runnable models/scenarios: des-engine's 95 JSON specs (`examples/*.json`, run via `npm run from-json`), the Rust engine's cargo examples + ~142 demo bins (`src/bin/main_*.rs`) + committed `data/`, and the legacy soccer bins. Repo + substring filters. |
+| `sim_model_inspect` | **DES-unique.** Parse ONE JSON model spec without running it and report its schema, the model/citizen it drives, parameters, runtime knobs, tags, and — for the universal-math DES documents — the math payload (state variables, equations, block graph). Path validated + parse-only. |
 | `engine_docs` | The engine core abstractions from the real code: FEL scheduler `Engine<W>` (`schedule_at`/`schedule_after`/`run_until`/`now`), the model-citizen contract (`CitizenRegistry`, `ModelDescriptor`, `RunArtifact`), and the TS station/tick kernel (`DESStation`, `TimeSteppedStation` — deliberately no global FEL). |
 | `engine_comparison` | Legacy-vs-current: the uta-phd → des-engine (TS) → discrete-event-system.rs (Rust) lineage, and why `old-outmoded-engine.rs` (`soccer_engine`) is legacy (superseded by akrion-sim). |
 | `org_map` | Org/repo map: repo locations today, migration plan, build entry points, shared ORESoftware infra (k8s GitOps, dpm, Cloudflare/Squarespace, fiducia, the MASH rule). |
