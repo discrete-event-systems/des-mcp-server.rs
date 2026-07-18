@@ -85,8 +85,8 @@ and will migrate into the org over time:
   (Promtail/Loki); no monkey-patching runtimes — explicit logging APIs only.
 - HTTP rule: if a service ever serves JSON/HTML it uses MASH — maud, axum,
   Supabase, SeaORM (NOT sqlx), htmx — with Supabase auth gated to
-  alexander.d.mills@gmail.com only. This MCP server is stdio-only and serves
-  no HTTP.
+  alexander.d.mills@gmail.com only. This org's instance is des-web.rs (see
+  above). This MCP server is stdio-only and serves no HTTP.
 
 ## Client telemetry
 
