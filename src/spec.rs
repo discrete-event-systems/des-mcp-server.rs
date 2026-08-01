@@ -85,8 +85,12 @@ pub fn inspect(label: &str, raw: &str) -> Result<String, String> {
         out.push_str(&format!("id:          {id}\n"));
     }
     if let Some(desc) = get_str("description") {
-        let d = if desc.len() > 240 { &desc[..240] } else { desc };
-        out.push_str(&format!("description: {d}\n"));
+        // Char-boundary-safe: a multi-byte glyph at byte 240 would panic a
+        // raw `&desc[..240]`, so a unicode description crashes the tool call.
+        out.push_str(&format!(
+            "description: {}\n",
+            crate::util::truncate_field(desc, 240)
+        ));
     }
 
     // Top-level keys, so nothing is hidden even for unusual specs.
