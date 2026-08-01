@@ -187,11 +187,9 @@ fn compact(v: &Value) -> String {
         Value::String(s) => s.clone(),
         other => serde_json::to_string(other).unwrap_or_default(),
     };
-    if s.len() > 100 {
-        format!("{}…", &s[..100])
-    } else {
-        s
-    }
+    // Char-boundary-safe: parameter values come straight from the spec JSON,
+    // so a multi-byte glyph at byte 100 must not panic a raw `&s[..100]`.
+    crate::util::truncate_field(&s, 100)
 }
 
 #[cfg(test)]
