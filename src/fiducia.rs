@@ -118,11 +118,9 @@ fn summarize_health(body: &str) -> String {
 
 fn compact(v: &Value) -> String {
     let s = serde_json::to_string(v).unwrap_or_default();
-    if s.len() > 60 {
-        format!("{}…", &s[..60])
-    } else {
-        s
-    }
+    // The health body is upstream/network-influenced, so a multi-byte glyph
+    // at byte 60 must not panic a raw `&s[..60]` and crash the probe summary.
+    crate::util::truncate_field(&s, 60)
 }
 
 #[cfg(test)]
@@ -156,5 +154,16 @@ mod tests {
         assert!(!j.contains("ignored"));
         assert_eq!(summarize_health(""), "");
         assert!(summarize_health("plain text down").contains("plain text down"));
+    }
+
+    #[test]
+    fn summarize_health_survives_multibyte_value() {
+        // A long multi-byte status value in the (network-influenced) health
+        // body would panic the old `&s[..60]` slice at a non-char-boundary.
+        let status = "✓".repeat(60); // 180 bytes; compact cut at 60 lands mid-char
+        let body = format!(r#"{{"status":"{status}"}}"#);
+        let out = summarize_health(&body); // must not panic
+        assert!(out.contains("status="));
+        assert!(out.contains('…'));
     }
 }
