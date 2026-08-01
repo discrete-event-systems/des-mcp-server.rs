@@ -118,11 +118,9 @@ fn summarize_health(body: &str) -> String {
 
 fn compact(v: &Value) -> String {
     let s = serde_json::to_string(v).unwrap_or_default();
-    if s.len() > 60 {
-        format!("{}…", &s[..60])
-    } else {
-        s
-    }
+    // The health body is upstream/network-influenced, so a multi-byte glyph
+    // at byte 60 must not panic a raw `&s[..60]` and crash the probe summary.
+    crate::util::truncate_field(&s, 60)
 }
 
 #[cfg(test)]
