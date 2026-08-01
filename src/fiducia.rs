@@ -155,4 +155,15 @@ mod tests {
         assert_eq!(summarize_health(""), "");
         assert!(summarize_health("plain text down").contains("plain text down"));
     }
+
+    #[test]
+    fn summarize_health_survives_multibyte_value() {
+        // A long multi-byte status value in the (network-influenced) health
+        // body would panic the old `&s[..60]` slice at a non-char-boundary.
+        let status = "✓".repeat(60); // 180 bytes; compact cut at 60 lands mid-char
+        let body = format!(r#"{{"status":"{status}"}}"#);
+        let out = summarize_health(&body); // must not panic
+        assert!(out.contains("status="));
+        assert!(out.contains('…'));
+    }
 }
