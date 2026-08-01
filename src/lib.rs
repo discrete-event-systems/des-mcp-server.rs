@@ -19,4 +19,5 @@ pub mod selftest;
 pub mod server;
 pub mod spec;
 pub mod supabase;
+pub mod telemetry;
 pub mod util;

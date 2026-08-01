@@ -8,7 +8,14 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use crate::domains::http_client;
+fn http_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent(concat!("des-mcp-server/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|e| e.to_string())
+}
 
 pub const SNAPSHOTS_TABLE: &str = "des_client_log_snapshots";
 pub const ENTRIES_TABLE: &str = "des_client_log_entries";

@@ -130,6 +130,22 @@ pub fn safe_pg_filter_value(value: &str, what: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Truncate `s` to at most `max_bytes`, snapping the cut DOWN to a UTF-8 char
+/// boundary, and append an ellipsis if anything was dropped. Use this for the
+/// inline truncation of any data- or network-influenced string (JSON spec
+/// fields, upstream API bodies): a raw `&s[..max]` panics when a multi-byte
+/// char straddles the cut, turning a malformed/unicode input into a crash.
+pub fn truncate_field(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    let mut cut = max_bytes;
+    while cut > 0 && !s.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}…", &s[..cut])
+}
+
 /// Extract per-target `test result:` summary lines from cargo test output.
 pub fn parse_test_summaries(output: &str) -> Vec<&str> {
     output

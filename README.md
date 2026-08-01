@@ -21,10 +21,15 @@ against conservative charsets so they can't smuggle flags, shell syntax, or
 query-string operators. **stdout is the MCP wire** — all logging goes to
 stderr.
 
+The public Astro showcase lives at
+[discrete-event-systems.github.io](https://discrete-event-systems.github.io/),
+with distinct simulation and game galleries. The dynamic companion server is
+[`des-web.rs`](https://github.com/discrete-event-systems/des-web.rs).
+
 ## Build & test
 
 ```sh
-cargo test             # 44 unit tests + 10 stdio integration tests (hermetic, no network)
+cargo test             # unit + stdio integration tests (hermetic, no network)
 cargo build --release  # binary: target/release/des-mcp-server
 ```
 
@@ -150,3 +155,11 @@ Canned, parameterized workflows via `prompts/list` + `prompts/get`:
 | `FIDUCIA_TOKEN` | — (optional) | `fiducia_status` endpoint probe |
 
 `self_test` reports the presence of each of these (never their values).
+
+## OpenTelemetry
+
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` to export explicit OTLP/gRPC traces and
+metrics; use `RUST_LOG` for filtering. Each MCP tool call gets a named span,
+call counter, duration histogram, and error flag. Arguments, results, and
+secrets are never recorded. JSON logs stay on stderr and stdout stays reserved
+for MCP framing. Instrumentation is explicit Rust code—no monkey patching.
