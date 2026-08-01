@@ -237,6 +237,26 @@ mod tests {
     }
 
     #[test]
+    fn inspect_survives_multibyte_description_and_params() {
+        // A description and a parameter value longer than the inline caps and
+        // built from multi-byte chars would panic the old `&s[..N]` slices at
+        // a non-char-boundary. Inspect must truncate safely, never crash.
+        let desc = "€".repeat(400); // 1200 bytes, cut at 240 lands mid-char
+        let pval = "λ".repeat(120); // 240 bytes, cut at 100 lands mid-char
+        let raw = format!(
+            r#"{{"$schema":"des/model-spec/v1","model":"unicode-mc",
+                "description":"{desc}","parameters":{{"greek":"{pval}"}}}}"#
+        );
+        let out = inspect("unicode.json", &raw).unwrap();
+        assert!(out.contains("model:       unicode-mc"));
+        assert!(out.contains("description: €"));
+        assert!(out.contains("greek = λ"));
+        // truncation markers present, and the output is valid UTF-8 by virtue
+        // of being a String (a bad slice would have panicked before here).
+        assert!(out.contains('…'));
+    }
+
+    #[test]
     fn inspect_rejects_non_json_and_non_object() {
         assert!(inspect("x", "not json").is_err());
         assert!(inspect("x", "[1,2,3]").is_err());
