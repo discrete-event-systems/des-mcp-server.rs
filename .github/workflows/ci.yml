@@ -1,4 +1,4 @@
-# CI: format, lint, and test the MCP server on every push/PR to main.
+# CI: format, lint, test, document, and build the MCP server on every push/PR.
 name: ci
 
 on:
@@ -20,16 +20,42 @@ env:
 jobs:
   test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - name: Validate GitHub Actions
+        uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
         with:
+          args: .github/workflows/ci.yml .github/workflows/web-smoke.yml
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: '1.97.1'
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - run: cargo fmt --check
+      - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --all-targets -- -D warnings
-      - run: cargo test --locked
+      - run: cargo test --locked --all-targets
+      - name: Documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --locked --no-deps
       - run: cargo build --locked --release
+      - name: Enforce bounded subprocess capture
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -nF 'wait_with_output()' -- src; then
+            echo 'unbounded subprocess output buffering detected' >&2
+            exit 1
+          fi
+          git grep -q 'run_cmd_with_limits' -- src/util.rs tests/bounded_process.rs
+          git grep -q 'read_pipe_bounded' -- src/util.rs
+          git grep -q 'kill_on_drop(true)' -- src/util.rs
+          git diff --check
+      - uses: taiki-e/install-action@c44f6b046f1c29ae5918b1e0bfdbb2f1813836fd # v2
+        with:
+          tool: cargo-audit@0.22.2
+      - name: Dependency audit
+        run: cargo audit --deny warnings
