@@ -30,8 +30,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # DoH (1.1.1.1), RDAP, Cloudflare v4, GitHub Actions, Supabase PostgREST.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
-# "process" for cargo/tsc/git subprocesses, "time" for their timeouts.
-tokio = { version = "1", features = ["macros", "net", "process", "rt-multi-thread", "time"] }
+# "process" for cargo/tsc/git subprocesses, "io-util" for bounded pipe drains.
+tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "time"] }
 tracing = "0.1"
 tracing-opentelemetry = "0.33"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
