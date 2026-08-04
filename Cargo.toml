@@ -18,6 +18,7 @@ name = "des-mcp-server"
 path = "src/main.rs"
 
 [dependencies]
+ore-mcp-bootstrap = { git = "https://github.com/ORESoftware/mcp-rust-libs", rev = "a5c1ba9c50493ac625dd2fb175af21263d0d2801" }
 anyhow = "1"
 chrono = "0.4"
 opentelemetry = "0.32"
