@@ -1,0 +1,42 @@
+name: one-shot-rustfmt
+
+on:
+  push:
+    branches:
+      - feat/bounded-formal-model-checker
+    paths:
+      - .github/workflows/one-shot-rustfmt.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/bounded-formal-model-checker
+          fetch-depth: 0
+      - name: Install repository Rust toolchain
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          components: rustfmt
+          toolchain: stable
+      - name: Apply rustfmt and publish the bounded result
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all
+          git diff --check
+          if git diff --quiet -- src/formal.rs tests/formal_cli.rs; then
+            echo "No formatter changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- src/formal.rs tests/formal_cli.rs
+          git commit -m "style: apply rustfmt to formal checker"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
