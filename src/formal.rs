@@ -737,12 +737,7 @@ fn render_trace(trace: &[TraceStep]) -> String {
     out
 }
 
-fn add(
-    report: &mut CheckReport,
-    code: &'static str,
-    message: String,
-    trace: Vec<TraceStep>,
-) {
+fn add(report: &mut CheckReport, code: &'static str, message: String, trace: Vec<TraceStep>) {
     if report.violations.len() < MAX_VIOLATIONS {
         report.violations.push(Violation {
             code,
@@ -840,10 +835,12 @@ mod tests {
             "nonterminal-deadlock",
             "terminal-unreachable",
         ] {
-            assert!(report
-                .violations
-                .iter()
-                .any(|violation| violation.code == code));
+            assert!(
+                report
+                    .violations
+                    .iter()
+                    .any(|violation| violation.code == code)
+            );
         }
     }
 

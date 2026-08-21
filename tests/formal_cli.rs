@@ -48,10 +48,8 @@ fn cli_passes_a_valid_model_and_fails_a_counterexample() {
     assert!(pass_output.status.success());
     assert!(String::from_utf8_lossy(&pass_output.stdout).contains("— PASS"));
 
-    let failing_raw = PASSING_MODEL.replace(
-        "\"held\": {\"owners\": 1}",
-        "\"held\": {\"owners\": 2}",
-    );
+    let failing_raw =
+        PASSING_MODEL.replace("\"held\": {\"owners\": 1}", "\"held\": {\"owners\": 2}");
     let failing = temp_model("fail", &failing_raw);
     let fail_output = Command::new(env!("CARGO_BIN_EXE_des-formal-check"))
         .arg(&failing)
