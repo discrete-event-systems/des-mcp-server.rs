@@ -7,11 +7,16 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use serde::Deserialize;
-use serde_json::{Number, Value};
+use serde_json::Value;
+
+mod input;
+mod numeric;
 
 pub const MODEL_SCHEMA: &str = "des/state-machine/v1";
 pub const DEFAULT_MAX_STATES: usize = 10_000;
 pub const HARD_MAX_STATES: usize = 100_000;
+pub const MAX_MODEL_BYTES: usize = 4_000_000;
+const MAX_PREDICATE_VISITS: usize = 2_000_000;
 const MAX_VIOLATIONS: usize = 100;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -202,7 +207,9 @@ impl CheckReport {
 }
 
 /// Parse and exhaustively check a finite explicit-state model.
+/// Ambiguous JSON, overflowing integer tokens, and oversized inputs fail closed.
 pub fn check_json(raw: &str, max_states: usize) -> Result<CheckReport, String> {
+    input::validate_json(raw)?;
     let model: StateMachine =
         serde_json::from_str(raw).map_err(|error| format!("invalid model JSON: {error}"))?;
     check_model(&model, max_states)
@@ -286,6 +293,15 @@ fn validate(model: &StateMachine, max_states: usize) -> Result<(), String> {
         return Err(format!(
             "model declares {} states, exceeding max_states={max_states}",
             model.states.len()
+        ));
+    }
+    let predicates = model.invariants.iter().fold(0usize, |sum, invariant| {
+        sum.saturating_add(invariant.when.len())
+            .saturating_add(invariant.assertions.len())
+    });
+    if model.states.len().saturating_mul(predicates) > MAX_PREDICATE_VISITS {
+        return Err(format!(
+            "predicate work exceeds {MAX_PREDICATE_VISITS} state/predicate visits"
         ));
     }
     if !model.states.contains_key(&model.initial) {
@@ -470,9 +486,10 @@ fn check_invariants(
     predecessors: &Predecessors,
     report: &mut CheckReport,
 ) {
+    let mut guard_hits = vec![0usize; model.invariants.len()];
     for state_name in order {
         let state = &model.states[state_name];
-        for invariant in &model.invariants {
+        for (index, invariant) in model.invariants.iter().enumerate() {
             let mut applies = true;
             for predicate in &invariant.when {
                 match evaluate(predicate, state) {
@@ -499,6 +516,7 @@ fn check_invariants(
             if !applies {
                 continue;
             }
+            guard_hits[index] += 1;
             for predicate in &invariant.assertions {
                 match evaluate(predicate, state) {
                     Ok(true) => {}
@@ -523,6 +541,14 @@ fn check_invariants(
                     ),
                 }
             }
+        }
+    }
+    for (invariant, hits) in model.invariants.iter().zip(guard_hits) {
+        if !invariant.when.is_empty() && hits == 0 {
+            report.warnings.push(format!(
+                "invariant {:?} guard never matched a reachable state",
+                invariant.name
+            ));
         }
     }
 }
@@ -618,20 +644,22 @@ fn evaluate(predicate: &Predicate, state: &Value) -> Result<bool, String> {
         Operator::Exists => Ok(left.is_some()),
         Operator::Absent => Ok(left.is_none()),
         Operator::Eq | Operator::Ne => {
-            let right = operand(predicate.right.as_ref(), state);
-            let Some((left, right)) = left.zip(right) else {
-                return Ok(false);
-            };
+            let left =
+                left.ok_or_else(|| format!("missing comparison path {:?}", predicate.path))?;
+            let right = operand(predicate.right.as_ref(), state)
+                .ok_or_else(|| "missing right comparison operand".to_string())?;
+            let equal = numeric::equal(left, right);
             Ok(if predicate.op == Operator::Eq {
-                left == right
+                equal
             } else {
-                left != right
+                !equal
             })
         }
         Operator::Lt | Operator::Lte | Operator::Gt | Operator::Gte => {
-            let Some((left, right)) = left.zip(operand(predicate.right.as_ref(), state)) else {
-                return Ok(false);
-            };
+            let left =
+                left.ok_or_else(|| format!("missing comparison path {:?}", predicate.path))?;
+            let right = operand(predicate.right.as_ref(), state)
+                .ok_or_else(|| "missing right comparison operand".to_string())?;
             let ordering = ordered(left, right).ok_or_else(|| {
                 "ordered comparison requires two numbers or two strings".to_string()
             })?;
@@ -665,20 +693,10 @@ fn at<'a>(state: &'a Value, path: &str) -> Option<&'a Value> {
 
 fn ordered(left: &Value, right: &Value) -> Option<Ordering> {
     match (left, right) {
-        (Value::Number(left), Value::Number(right)) => numbers(left, right),
+        (Value::Number(left), Value::Number(right)) => numeric::compare(left, right),
         (Value::String(left), Value::String(right)) => Some(left.cmp(right)),
         _ => None,
     }
-}
-
-fn numbers(left: &Number, right: &Number) -> Option<Ordering> {
-    if let (Some(left), Some(right)) = (left.as_i64(), right.as_i64()) {
-        return Some(left.cmp(&right));
-    }
-    if let (Some(left), Some(right)) = (left.as_u64(), right.as_u64()) {
-        return Some(left.cmp(&right));
-    }
-    left.as_f64()?.partial_cmp(&right.as_f64()?)
 }
 
 fn describe(predicate: &Predicate) -> String {

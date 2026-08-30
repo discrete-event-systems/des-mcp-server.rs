@@ -2,6 +2,7 @@
 # discrete-event-systems org (DES engine work under ~/codes/ores for now).
 [package]
 name = "des-mcp-server"
+default-run = "des-mcp-server"
 version = "0.1.0"
 edition = "2024"
 description = "MCP server for the discrete-event-systems org — read-only/build-only tools over the DES engine repos, sim-model inventory, engine docs, Supabase client telemetry, domains, and GitHub CI."
