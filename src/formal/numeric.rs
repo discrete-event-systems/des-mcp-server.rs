@@ -66,16 +66,31 @@ mod tests {
     #[test]
     fn comparison_is_symmetric_across_integer_and_float_boundaries() {
         let literals = [
-            "-1e30", "-9223372036854775808", "-9007199254740993",
-            "-9007199254740992.0", "-1.5", "-1", "-0.0", "0", "0.5", "1",
-            "1.0", "9007199254740992.0", "9007199254740993",
-            "18446744073709551615", "18446744073709551616.0", "1e30",
+            "-1e30",
+            "-9223372036854775808",
+            "-9007199254740993",
+            "-9007199254740992.0",
+            "-1.5",
+            "-1",
+            "-0.0",
+            "0",
+            "0.5",
+            "1",
+            "1.0",
+            "9007199254740992.0",
+            "9007199254740993",
+            "18446744073709551615",
+            "18446744073709551616.0",
+            "1e30",
         ];
         for left in literals {
             for right in literals {
                 let left: Number = serde_json::from_str(left).unwrap();
                 let right: Number = serde_json::from_str(right).unwrap();
-                assert_eq!(compare(&left, &right), compare(&right, &left).map(Ordering::reverse));
+                assert_eq!(
+                    compare(&left, &right),
+                    compare(&right, &left).map(Ordering::reverse)
+                );
             }
         }
     }
@@ -83,6 +98,9 @@ mod tests {
     #[test]
     fn equality_uses_the_same_numeric_semantics_inside_arrays_and_objects() {
         assert!(equal(&json!({"a": [1, 0]}), &json!({"a": [1.0, -0.0]})));
-        assert!(!equal(&json!([9007199254740993u64]), &json!([9007199254740992.0])));
+        assert!(!equal(
+            &json!([9007199254740993u64]),
+            &json!([9007199254740992.0])
+        ));
     }
 }

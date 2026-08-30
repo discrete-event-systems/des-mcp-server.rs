@@ -24,7 +24,12 @@ fn mixed_numeric_comparisons_do_not_round_integers_into_false_passes() {
     for (left, right, op, expected) in [
         ("9007199254740993", "9007199254740992.0", "lte", false),
         ("9007199254740993", "9007199254740992.0", "gt", true),
-        ("18446744073709551615", "18446744073709551616.0", "gte", false),
+        (
+            "18446744073709551615",
+            "18446744073709551616.0",
+            "gte",
+            false,
+        ),
         ("18446744073709551616.0", "18446744073709551615", "gt", true),
         ("-9007199254740993", "-9007199254740992.0", "gte", false),
         ("-9223372036854775808", "18446744073709551615", "lt", true),
@@ -66,8 +71,7 @@ fn out_of_range_integer_literals_are_not_silently_treated_as_floats() {
 
 #[test]
 fn missing_literal_operand_is_not_implicitly_null() {
-    let raw = comparison("null", "null", "eq")
-        .replace(r#"{"path": "/right"}"#, "{}");
+    let raw = comparison("null", "null", "eq").replace(r#"{"path": "/right"}"#, "{}");
     assert!(check_json(&raw, DEFAULT_MAX_STATES).is_err());
 }
 
@@ -90,7 +94,12 @@ fn missing_comparison_guard_cannot_make_an_invariant_vacuously_pass() {
     });
     let report = check_json(&raw.to_string(), DEFAULT_MAX_STATES).unwrap();
     assert!(!report.passed());
-    assert!(report.violations.iter().any(|v| v.code == "invalid-invariant-predicate"));
+    assert!(
+        report
+            .violations
+            .iter()
+            .any(|v| v.code == "invalid-invariant-predicate")
+    );
 }
 
 #[test]

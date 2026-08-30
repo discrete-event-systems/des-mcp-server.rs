@@ -19,7 +19,8 @@ fn main() {
 }
 
 fn read_model(path: &Path) -> Result<String, String> {
-    let metadata = std::fs::metadata(path).map_err(|error| format!("cannot stat model: {error}"))?;
+    let metadata =
+        std::fs::metadata(path).map_err(|error| format!("cannot stat model: {error}"))?;
     if !metadata.is_file() {
         return Err("model must be a regular file".to_string());
     }
@@ -60,7 +61,9 @@ fn run(args: impl IntoIterator<Item = String>) -> Result<i32, String> {
                     .parse::<usize>()
                     .map_err(|_| format!("invalid --max-states value {raw:?}"))?;
                 if !(1..=HARD_MAX_STATES).contains(&max_states) {
-                    return Err(format!("--max-states must be between 1 and {HARD_MAX_STATES}"));
+                    return Err(format!(
+                        "--max-states must be between 1 and {HARD_MAX_STATES}"
+                    ));
                 }
             }
             flag if flag.starts_with('-') => return Err(format!("unknown option {flag:?}")),
@@ -87,5 +90,11 @@ fn run(args: impl IntoIterator<Item = String>) -> Result<i32, String> {
             }
         }
     }
-    Ok(if input_failed { 2 } else if model_failed { 1 } else { 0 })
+    Ok(if input_failed {
+        2
+    } else if model_failed {
+        1
+    } else {
+        0
+    })
 }

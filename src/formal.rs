@@ -300,7 +300,9 @@ fn validate(model: &StateMachine, max_states: usize) -> Result<(), String> {
             .saturating_add(invariant.assertions.len())
     });
     if model.states.len().saturating_mul(predicates) > MAX_PREDICATE_VISITS {
-        return Err(format!("predicate work exceeds {MAX_PREDICATE_VISITS} state/predicate visits"));
+        return Err(format!(
+            "predicate work exceeds {MAX_PREDICATE_VISITS} state/predicate visits"
+        ));
     }
     if !model.states.contains_key(&model.initial) {
         return Err(format!("unknown initial state {:?}", model.initial));
@@ -642,14 +644,20 @@ fn evaluate(predicate: &Predicate, state: &Value) -> Result<bool, String> {
         Operator::Exists => Ok(left.is_some()),
         Operator::Absent => Ok(left.is_none()),
         Operator::Eq | Operator::Ne => {
-            let left = left.ok_or_else(|| format!("missing comparison path {:?}", predicate.path))?;
+            let left =
+                left.ok_or_else(|| format!("missing comparison path {:?}", predicate.path))?;
             let right = operand(predicate.right.as_ref(), state)
                 .ok_or_else(|| "missing right comparison operand".to_string())?;
             let equal = numeric::equal(left, right);
-            Ok(if predicate.op == Operator::Eq { equal } else { !equal })
+            Ok(if predicate.op == Operator::Eq {
+                equal
+            } else {
+                !equal
+            })
         }
         Operator::Lt | Operator::Lte | Operator::Gt | Operator::Gte => {
-            let left = left.ok_or_else(|| format!("missing comparison path {:?}", predicate.path))?;
+            let left =
+                left.ok_or_else(|| format!("missing comparison path {:?}", predicate.path))?;
             let right = operand(predicate.right.as_ref(), state)
                 .ok_or_else(|| "missing right comparison operand".to_string())?;
             let ordering = ordered(left, right).ok_or_else(|| {
