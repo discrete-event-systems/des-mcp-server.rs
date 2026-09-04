@@ -55,6 +55,11 @@ impl Drop for TelemetryGuard {
 /// Exporter failures fail open to stderr-only telemetry. Error details are not
 /// printed because an OTLP endpoint or header can contain credentials.
 pub fn init(service_name: &'static str, service_namespace: &'static str) -> TelemetryGuard {
+    let identity =
+        ore_mcp_bootstrap::runtime::ServerIdentity::stdio(service_name, service_namespace)
+            .expect("static MCP service identity must be valid");
+    let service_name = identity.service_name();
+    let service_namespace = identity.service_namespace();
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,hyper=warn"));
     let resource = resource(service_name, service_namespace);
@@ -187,58 +192,36 @@ fn push_env_attribute(attributes: &mut Vec<KeyValue>, env_name: &str, key: &'sta
     }
 }
 
-fn resource_attribute_pairs(raw: &str) -> impl Iterator<Item = (String, String)> + '_ {
-    raw.split(',').filter_map(|pair| {
-        let (key, value) = pair.split_once('=')?;
-        let key = key.trim();
-        let value = value.trim();
-        if valid_attribute_key(key)
-            && valid_attribute_value(value)
-            && !sensitive_attribute_key(key)
-            && !matches!(key, "service.name" | "service.namespace")
-        {
-            Some((key.to_string(), value.to_string()))
-        } else {
-            None
+fn resource_attribute_pairs(raw: &str) -> impl Iterator<Item = (String, String)> {
+    let mut attributes = Vec::new();
+    if raw.len() > ore_mcp_bootstrap::telemetry::MAX_RESOURCE_ATTRIBUTE_BYTES {
+        return attributes.into_iter();
+    }
+    let mut seen = std::collections::HashSet::new();
+    for (key, value) in ore_mcp_bootstrap::telemetry::resource_attribute_pairs(raw) {
+        if attributes.len() >= ore_mcp_bootstrap::telemetry::MAX_RESOURCE_ATTRIBUTE_PAIRS {
+            break;
         }
-    })
-}
-
-fn valid_attribute_key(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 128
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+        if !matches!(
+            key.as_str(),
+            "service.name"
+                | "service.namespace"
+                | "service.version"
+                | "deployment.environment"
+                | "k8s.namespace.name"
+                | "k8s.pod.name"
+                | "k8s.node.name"
+                | "host.name"
+        ) && seen.insert(key.clone())
+        {
+            attributes.push((key, value));
+        }
+    }
+    attributes.into_iter()
 }
 
 fn valid_attribute_value(value: &str) -> bool {
     !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
-}
-
-fn sensitive_attribute_key(key: &str) -> bool {
-    let normalized = key.to_ascii_lowercase().replace(['-', '.'], "_");
-    [
-        "authorization",
-        "bearer",
-        "cookie",
-        "credential",
-        "email",
-        "jwt",
-        "passphrase",
-        "passwd",
-        "password",
-        "private_key",
-        "pwd",
-        "secret",
-        "session",
-        "signing_key",
-        "token",
-        "api_key",
-        "apikey",
-    ]
-    .iter()
-    .any(|needle| normalized.contains(needle))
 }
 
 /// Add one explicit span and two low-cardinality metrics around every tool.
