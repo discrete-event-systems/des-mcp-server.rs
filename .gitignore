@@ -1,2 +1,12 @@
 /target
 .DS_Store
+
+# web-smoke (Playwright) — runner-only artifacts, never committed
+web-smoke/node_modules/
+web-smoke/package-lock.json
+web-smoke/test-results/
+web-smoke/playwright-report/
+tmp
+temp
+tmp/worktrees
+temp/worktrees
