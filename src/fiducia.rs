@@ -92,12 +92,10 @@ pub async fn probe(env: &FiduciaEnv) -> String {
 fn summarize_health(body: &str) -> String {
     match serde_json::from_str::<Value>(body) {
         Ok(v) => {
-            let mut parts = Vec::new();
-            for k in ["status", "healthy", "leases", "locks", "secrets"] {
-                if let Some(val) = v.get(k) {
-                    parts.push(format!("{k}={}", compact(val)));
-                }
-            }
+            let parts: Vec<String> = ["status", "healthy", "leases", "locks", "secrets"]
+                .into_iter()
+                .filter_map(|k| v.get(k).map(|val| format!("{k}={}", compact(val))))
+                .collect();
             if parts.is_empty() {
                 String::new()
             } else {
