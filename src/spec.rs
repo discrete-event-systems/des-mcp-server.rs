@@ -85,8 +85,12 @@ pub fn inspect(label: &str, raw: &str) -> Result<String, String> {
         out.push_str(&format!("id:          {id}\n"));
     }
     if let Some(desc) = get_str("description") {
-        let d = if desc.len() > 240 { &desc[..240] } else { desc };
-        out.push_str(&format!("description: {d}\n"));
+        // Char-boundary-safe: a multi-byte glyph at byte 240 would panic a
+        // raw `&desc[..240]`, so a unicode description crashes the tool call.
+        out.push_str(&format!(
+            "description: {}\n",
+            crate::util::truncate_field(desc, 240)
+        ));
     }
 
     // Top-level keys, so nothing is hidden even for unusual specs.
@@ -183,11 +187,9 @@ fn compact(v: &Value) -> String {
         Value::String(s) => s.clone(),
         other => serde_json::to_string(other).unwrap_or_default(),
     };
-    if s.len() > 100 {
-        format!("{}…", &s[..100])
-    } else {
-        s
-    }
+    // Char-boundary-safe: parameter values come straight from the spec JSON,
+    // so a multi-byte glyph at byte 100 must not panic a raw `&s[..100]`.
+    crate::util::truncate_field(&s, 100)
 }
 
 #[cfg(test)]
@@ -232,6 +234,26 @@ mod tests {
         assert!(out.contains("kind: ode"));
         assert!(out.contains("state variables: 1  [y]"));
         assert!(out.contains("equations: 1  [ode:y]"));
+    }
+
+    #[test]
+    fn inspect_survives_multibyte_description_and_params() {
+        // A description and a parameter value longer than the inline caps and
+        // built from multi-byte chars would panic the old `&s[..N]` slices at
+        // a non-char-boundary. Inspect must truncate safely, never crash.
+        let desc = "€".repeat(400); // 1200 bytes, cut at 240 lands mid-char
+        let pval = "λ".repeat(120); // 240 bytes, cut at 100 lands mid-char
+        let raw = format!(
+            r#"{{"$schema":"des/model-spec/v1","model":"unicode-mc",
+                "description":"{desc}","parameters":{{"greek":"{pval}"}}}}"#
+        );
+        let out = inspect("unicode.json", &raw).unwrap();
+        assert!(out.contains("model:       unicode-mc"));
+        assert!(out.contains("description: €"));
+        assert!(out.contains("greek = λ"));
+        // truncation markers present, and the output is valid UTF-8 by virtue
+        // of being a String (a bad slice would have panicked before here).
+        assert!(out.contains('…'));
     }
 
     #[test]

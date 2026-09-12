@@ -3,6 +3,8 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use tokio::io::{AsyncRead, AsyncReadExt};
+
 pub const MAX_OUTPUT_CHARS: usize = 40_000;
 
 /// The DES repos this server manages. They currently live under the org root
@@ -38,13 +40,52 @@ pub fn truncate_output(mut s: String) -> String {
     s
 }
 
-/// Run a command with a timeout; returns (exit_ok, combined stdout+stderr).
+pub const MAX_COMMAND_STDOUT_BYTES: usize = 1024 * 1024;
+pub const MAX_COMMAND_STDERR_BYTES: usize = 256 * 1024;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CommandOutputLimits {
+    pub timeout: Duration,
+    pub max_stdout_bytes: usize,
+    pub max_stderr_bytes: usize,
+}
+
+/// Run a command with a timeout and pre-buffer stdout/stderr ceilings.
 pub async fn run_cmd(
     dir: Option<&Path>,
     program: &str,
     args: &[&str],
     timeout: Duration,
 ) -> Result<(bool, String), String> {
+    run_cmd_with_limits(
+        dir,
+        program,
+        args,
+        CommandOutputLimits {
+            timeout,
+            max_stdout_bytes: MAX_COMMAND_STDOUT_BYTES,
+            max_stderr_bytes: MAX_COMMAND_STDERR_BYTES,
+        },
+    )
+    .await
+}
+
+/// Concurrently drain both child pipes under explicit byte and time limits.
+/// The child is killed and reaped on timeout or the first over-limit byte.
+pub async fn run_cmd_with_limits(
+    dir: Option<&Path>,
+    program: &str,
+    args: &[&str],
+    limits: CommandOutputLimits,
+) -> Result<(bool, String), String> {
+    const MAX_CONFIGURED_CAPTURE: usize = 16 * 1024 * 1024;
+    if limits.timeout.is_zero()
+        || !(1..=MAX_CONFIGURED_CAPTURE).contains(&limits.max_stdout_bytes)
+        || !(1..=MAX_CONFIGURED_CAPTURE).contains(&limits.max_stderr_bytes)
+    {
+        return Err("invalid subprocess output limits".to_string());
+    }
+
     let mut cmd = tokio::process::Command::new(program);
     cmd.args(args)
         .stdin(std::process::Stdio::null())
@@ -54,20 +95,91 @@ pub async fn run_cmd(
     if let Some(dir) = dir {
         cmd.current_dir(dir);
     }
-    let child = cmd
-        .spawn()
-        .map_err(|e| format!("failed to spawn {program}: {e}"))?;
-    let out = tokio::time::timeout(timeout, child.wait_with_output())
-        .await
-        .map_err(|_| format!("`{program} {}` timed out after {timeout:?}", args.join(" ")))?
-        .map_err(|e| format!("{program} failed: {e}"))?;
-    let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
-    let err = String::from_utf8_lossy(&out.stderr);
-    if !err.trim().is_empty() {
-        text.push_str("\n--- stderr ---\n");
-        text.push_str(&err);
+    let mut child = cmd.spawn().map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            format!("`{program}` not found on PATH: {error}")
+        } else {
+            format!("failed to spawn {program}: {error}")
+        }
+    })?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "subprocess stdout pipe is unavailable".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "subprocess stderr pipe is unavailable".to_string())?;
+
+    let operation = async {
+        let wait = async {
+            child
+                .wait()
+                .await
+                .map_err(|error| format!("{program} failed: {error}"))
+        };
+        let stdout = read_pipe_bounded(stdout, limits.max_stdout_bytes, "stdout");
+        let stderr = read_pipe_bounded(stderr, limits.max_stderr_bytes, "stderr");
+        tokio::try_join!(wait, stdout, stderr)
+    };
+
+    let result = tokio::time::timeout(limits.timeout, operation).await;
+    let (status, stdout, stderr) = match result {
+        Ok(Ok(output)) => output,
+        Ok(Err(error)) => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            return Err(error);
+        }
+        Err(_) => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            return Err(format!("`{program}` timed out after {:?}", limits.timeout));
+        }
+    };
+
+    let mut text = String::from_utf8_lossy(&stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&stderr);
+    if !stderr.trim().is_empty() {
+        text.push_str(
+            "
+--- stderr ---
+",
+        );
+        text.push_str(&stderr);
     }
-    Ok((out.status.success(), text))
+    Ok((status.success(), text))
+}
+
+async fn read_pipe_bounded<R>(
+    mut reader: R,
+    limit: usize,
+    stream_name: &str,
+) -> Result<Vec<u8>, String>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut output = Vec::new();
+    let mut chunk = [0_u8; 8192];
+    loop {
+        let read = reader
+            .read(&mut chunk)
+            .await
+            .map_err(|error| format!("reading subprocess {stream_name} failed: {error}"))?;
+        if read == 0 {
+            return Ok(output);
+        }
+        let next = output
+            .len()
+            .checked_add(read)
+            .ok_or_else(|| format!("subprocess {stream_name} length overflow"))?;
+        if next > limit {
+            return Err(format!(
+                "subprocess {stream_name} exceeded the {limit}-byte limit"
+            ));
+        }
+        output.extend_from_slice(&chunk[..read]);
+    }
 }
 
 pub async fn git(dir: &Path, args: &[&str]) -> Result<(bool, String), String> {
@@ -128,6 +240,22 @@ pub fn safe_pg_filter_value(value: &str, what: &str) -> Result<(), String> {
         return Err(format!("invalid {what}: {value:?}"));
     }
     Ok(())
+}
+
+/// Truncate `s` to at most `max_bytes`, snapping the cut DOWN to a UTF-8 char
+/// boundary, and append an ellipsis if anything was dropped. Use this for the
+/// inline truncation of any data- or network-influenced string (JSON spec
+/// fields, upstream API bodies): a raw `&s[..max]` panics when a multi-byte
+/// char straddles the cut, turning a malformed/unicode input into a crash.
+pub fn truncate_field(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    let mut cut = max_bytes;
+    while cut > 0 && !s.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}…", &s[..cut])
 }
 
 /// Extract per-target `test result:` summary lines from cargo test output.
@@ -206,6 +334,23 @@ mod tests {
                 "should reject {bad:?}"
             );
         }
+    }
+
+    #[test]
+    fn truncate_field_snaps_to_char_boundary() {
+        // ASCII shorter than the cap passes through unchanged.
+        assert_eq!(truncate_field("hello", 100), "hello");
+        assert_eq!(truncate_field("hello", 5), "hello");
+        // Multi-byte content whose cut lands mid-char must NOT panic; the cut
+        // snaps down to a boundary and an ellipsis is appended.
+        let s = "€".repeat(30); // 3 bytes each = 90 bytes
+        let t = truncate_field(&s, 60); // 60 is not a char boundary here
+        assert!(t.ends_with('…'));
+        assert!(t.len() <= 60 + '…'.len_utf8());
+        // The kept prefix is valid UTF-8 made of whole '€' chars.
+        assert!(t.trim_end_matches('…').chars().all(|c| c == '€'));
+        // A cap of 0 yields just the ellipsis, still no panic.
+        assert_eq!(truncate_field("abc", 0), "…");
     }
 
     #[test]
