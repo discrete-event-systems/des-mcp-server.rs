@@ -29,3 +29,4 @@ temp/worktrees
 !/env/enc/dev.env.enc
 !/env/enc/prod.env.enc
 # END ores-sops dotenv policy
+# Repository-local temporary data and authorized Git worktrees
