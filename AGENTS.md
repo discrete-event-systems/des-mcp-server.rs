@@ -1,3 +1,31 @@
+# des-mcp-server.rs — agent contract
+
+## Parent / root agent contract
+
+This file is **this repository's** agent contract. The fleet-wide parent lives at:
+
+- GitHub: https://github.com/oresoftware/my-ai/AGENTS.md
+- Disk: `~/codes/oresoftware/my-ai/AGENTS.md`
+- Installed by `~/codes/oresoftware/my-ai/setup-final.sh` (not `.md`) as symlinks onto:
+  - `~/codes/AGENTS.md`
+  - `~/codes/.claude/AGENTS.md` and `~/codes/.claude/CLAUDE.md`
+  - `~/codes/.cursor/AGENTS.md` and `~/codes/.cursor/.cursorrules`
+  - `~/codes/.chatgpt/AGENTS.md`
+  - `~/codes/.openai/AGENTS.md`
+  - `~/codes/.anthropic/AGENTS.md`
+
+When this file and the parent disagree: follow **this file** for this MCP
+server's tools, safety boundary, and env layout; follow the parent for org-wide
+git/Linear/GitHub/k8s/shared-auth/opto-sync/ores-otel/zed-pkg conventions.
+
+The mapping is 1:1:1:1 — GitHub org : Linear project : GitHub org project
+(usually `https://github.com/orgs/<org>/projects/1`) : Slack channel in
+`oresoftware-workspace.slack.com`. Linear workspace: https://linear.app/denman
+Primary GitHub user: `ORESoftware`. Secondary: `the1mills`.
+
+
+---
+
 # Agent guidelines — des-mcp-server.rs
 
 MCP server exposing read-only/build-only tools for the discrete-event-systems
@@ -91,3 +119,10 @@ To sync:
 
 Integrate with **`git merge` / `git pull`**. **Never `git rebase` to sync** — it
 rewrites history and breaks shared branches.
+
+## Repository-local Git worktrees
+
+- Create or use a Git worktree only when the human operator explicitly authorizes it for the current task. Concurrency or a dirty checkout is not permission by itself.
+- Put every authorized worktree at `<repository-root>/tmp/worktrees/<name>`; from the repository root, use `./tmp/worktrees/<name>`. Never place worktrees beside repositories or organization directories.
+- Keep `tmp`, `temp`, `tmp/worktrees`, and `temp/worktrees` ignored in the repository-root `.gitignore`. Do not commit files from those directories.
+- Relocate or remove a worktree only when the operator explicitly requests it. Before removal, preserve and publish intended changes, verify its commit is represented on the target branch, and confirm there are no tracked, untracked, ignored-sensitive, or in-use files that must survive. Remove it with `git worktree remove <path>` without `--force`; never delete a worktree directory with `rm`.
