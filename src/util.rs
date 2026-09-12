@@ -130,6 +130,22 @@ pub fn safe_pg_filter_value(value: &str, what: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Truncate `s` to at most `max_bytes`, snapping the cut DOWN to a UTF-8 char
+/// boundary, and append an ellipsis if anything was dropped. Use this for the
+/// inline truncation of any data- or network-influenced string (JSON spec
+/// fields, upstream API bodies): a raw `&s[..max]` panics when a multi-byte
+/// char straddles the cut, turning a malformed/unicode input into a crash.
+pub fn truncate_field(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    let mut cut = max_bytes;
+    while cut > 0 && !s.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}…", &s[..cut])
+}
+
 /// Extract per-target `test result:` summary lines from cargo test output.
 pub fn parse_test_summaries(output: &str) -> Vec<&str> {
     output
@@ -206,6 +222,23 @@ mod tests {
                 "should reject {bad:?}"
             );
         }
+    }
+
+    #[test]
+    fn truncate_field_snaps_to_char_boundary() {
+        // ASCII shorter than the cap passes through unchanged.
+        assert_eq!(truncate_field("hello", 100), "hello");
+        assert_eq!(truncate_field("hello", 5), "hello");
+        // Multi-byte content whose cut lands mid-char must NOT panic; the cut
+        // snaps down to a boundary and an ellipsis is appended.
+        let s = "€".repeat(30); // 3 bytes each = 90 bytes
+        let t = truncate_field(&s, 60); // 60 is not a char boundary here
+        assert!(t.ends_with('…'));
+        assert!(t.len() <= 60 + '…'.len_utf8());
+        // The kept prefix is valid UTF-8 made of whole '€' chars.
+        assert!(t.trim_end_matches('…').chars().all(|c| c == '€'));
+        // A cap of 0 yields just the ellipsis, still no panic.
+        assert_eq!(truncate_field("abc", 0), "…");
     }
 
     #[test]

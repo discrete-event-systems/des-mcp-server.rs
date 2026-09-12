@@ -8,3 +8,41 @@ temp/worktrees
 # Local temporary directories and Git worktrees (DEN-3956).
 tmp/
 temp/
+# web-smoke (Playwright) — runner-only artifacts, never committed
+web-smoke/node_modules/
+web-smoke/package-lock.json
+web-smoke/test-results/
+web-smoke/playwright-report/
+tmp
+temp
+tmp/worktrees
+temp/worktrees
+# BEGIN ores-sops dotenv policy
+*.env
+*/*.env
+*/**/*.env
+.env.*
+*.env.*
+!.env.example
+/env/dec/
+/env/enc/*
+!/env/enc/dev.env.enc
+!/env/enc/prod.env.enc
+# END ores-sops dotenv policy
+# Repository-local temporary data and authorized Git worktrees
+# --- environment / secrets (sops + age) -------------------------------------
+# Only env/enc/*.env.enc is tracked. Every plaintext form stays out of git;
+# `just env-check` enforces it. See env/README.md.
+.env
+**/*.env
+env/dec/
+# age private keys — never commit these.
+*.agekey
+*.age-key
+keys.txt
+sops-private*.txt
+# DEN-3956: ignore agent scratch worktrees and temp dirs (fleet policy)
+.tmp/
+tmp/worktrees/
+**/tmp/worktrees/
+# Sanctioned scratch locations - AGENTS.md requires both, trailing-slash form
