@@ -1,2 +1,6 @@
 /target
 .DS_Store
+
+# Sanctioned scratch locations - AGENTS.md requires both, trailing-slash form
+tmp/
+temp/
