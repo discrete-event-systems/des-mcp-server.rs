@@ -17,6 +17,7 @@ pub mod models;
 pub mod org_map;
 pub mod selftest;
 pub mod server;
+pub mod shared_bootstrap;
 pub mod spec;
 pub mod supabase;
 pub mod telemetry;
