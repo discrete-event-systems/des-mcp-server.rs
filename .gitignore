@@ -41,3 +41,7 @@ env/dec/
 *.age-key
 keys.txt
 sops-private*.txt
+# DEN-3956: ignore agent scratch worktrees and temp dirs (fleet policy)
+.tmp/
+tmp/worktrees/
+**/tmp/worktrees/
