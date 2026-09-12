@@ -14,3 +14,15 @@ temp/worktrees
 # Local temporary directories and Git worktrees (DEN-3956).
 tmp/
 temp/
+# BEGIN ores-sops dotenv policy
+*.env
+*/*.env
+*/**/*.env
+.env.*
+*.env.*
+!.env.example
+/env/dec/
+/env/enc/*
+!/env/enc/dev.env.enc
+!/env/enc/prod.env.enc
+# END ores-sops dotenv policy
