@@ -1,0 +1,11 @@
+schema_version: ores.compose.v1
+project: des-mcp-server.rs
+allow_lazy_start: false
+
+services:
+  des-mcp-server.rs:
+    name: des-mcp-server.rs
+    runtime: host
+    build:
+      - ["cargo", "build", "--bins"]
+    command: ["./target/debug/des-mcp-server.rs"]
