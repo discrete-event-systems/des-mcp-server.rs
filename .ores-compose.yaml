@@ -1,10 +1,10 @@
 schema_version: ores.compose.v1
-project: des-mcp-server.rs
+project: des-mcp-server
 allow_lazy_start: false
 
 services:
-  des-mcp-server.rs:
-    name: des-mcp-server.rs
+  des-mcp-server:
+    name: des-mcp-server
     runtime: host
     build:
       - ["cargo", "build", "--bins"]
