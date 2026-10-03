@@ -209,11 +209,14 @@ fn every_three_state_graph_agrees_with_an_independent_transitive_closure_oracle(
     }
 }
 
-
 #[test]
 fn strict_profile_rejects_policy_bypasses_and_specification_drift() {
     let passing = comparison("0", "0", "eq");
-    assert!(check_json_strict(&passing, DEFAULT_MAX_STATES).unwrap().passed());
+    assert!(
+        check_json_strict(&passing, DEFAULT_MAX_STATES)
+            .unwrap()
+            .passed()
+    );
 
     let no_invariants = json!({
         "$schema": "des/state-machine/v1",
@@ -286,5 +289,9 @@ fn strict_profile_rejects_policy_bypasses_and_specification_drift() {
     );
 
     // Generic checking deliberately remains warning-tolerant for exploratory use.
-    assert!(check_json(&vacuous.to_string(), DEFAULT_MAX_STATES).unwrap().passed());
+    assert!(
+        check_json(&vacuous.to_string(), DEFAULT_MAX_STATES)
+            .unwrap()
+            .passed()
+    );
 }

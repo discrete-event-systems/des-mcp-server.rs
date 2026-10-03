@@ -76,7 +76,6 @@ fn cli_distinguishes_invalid_input_from_a_failed_proof_obligation() {
     std::fs::remove_file(invalid).unwrap();
 }
 
-
 #[test]
 fn strict_cli_fails_closed_on_warning_only_and_disabled_baseline_models() {
     let warning = PASSING_MODEL.replace(
@@ -90,7 +89,9 @@ fn strict_cli_fails_closed_on_warning_only_and_disabled_baseline_models() {
         .output()
         .unwrap();
     assert_eq!(warning_output.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&warning_output.stderr).contains("strict verification rejects"));
+    assert!(
+        String::from_utf8_lossy(&warning_output.stderr).contains("strict verification rejects")
+    );
 
     let disabled = PASSING_MODEL.replace(
         "\"terminal_states\": [\"released\"]",
