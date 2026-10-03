@@ -223,7 +223,9 @@ pub fn check_json_strict(raw: &str, max_states: usize) -> Result<CheckReport, St
     let model = parse_model(raw)?;
     let report = check_model(&model, max_states)?;
     validate_strict_profile(&model)?;
-    if !report.warnings.is_empty() {
+    // Preserve real counterexamples as exit-1 proof failures. Warning-only
+    // specifications are rejected as invalid strict-policy evidence.
+    if report.passed() && !report.warnings.is_empty() {
         let preview = report
             .warnings
             .iter()
