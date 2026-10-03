@@ -209,10 +209,62 @@ impl CheckReport {
 /// Parse and exhaustively check a finite explicit-state model.
 /// Ambiguous JSON, overflowing integer tokens, and oversized inputs fail closed.
 pub fn check_json(raw: &str, max_states: usize) -> Result<CheckReport, String> {
-    input::validate_json(raw)?;
-    let model: StateMachine =
-        serde_json::from_str(raw).map_err(|error| format!("invalid model JSON: {error}"))?;
+    let model = parse_model(raw)?;
     check_model(&model, max_states)
+}
+
+/// Apply the organization baseline on top of ordinary model checking.
+///
+/// Strict models must keep all baseline graph obligations enabled, contain at
+/// least one safety invariant, and produce no specification-drift warnings.
+/// This is intended for CI policy gates; callers that intentionally need a
+/// weaker or exploratory model can continue to use `check_json`.
+pub fn check_json_strict(raw: &str, max_states: usize) -> Result<CheckReport, String> {
+    let model = parse_model(raw)?;
+    let report = check_model(&model, max_states)?;
+    validate_strict_profile(&model)?;
+    if !report.warnings.is_empty() {
+        let preview = report
+            .warnings
+            .iter()
+            .take(5)
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(format!(
+            "strict verification rejects {} warning(s): {preview}",
+            report.warnings.len()
+        ));
+    }
+    Ok(report)
+}
+
+fn parse_model(raw: &str) -> Result<StateMachine, String> {
+    input::validate_json(raw)?;
+    serde_json::from_str(raw).map_err(|error| format!("invalid model JSON: {error}"))
+}
+
+fn validate_strict_profile(model: &StateMachine) -> Result<(), String> {
+    if model.invariants.is_empty() {
+        return Err("strict verification requires at least one safety invariant".to_string());
+    }
+    let mut disabled = Vec::new();
+    if !model.checks.deterministic_events {
+        disabled.push("deterministic_events");
+    }
+    if !model.checks.nonterminal_deadlocks {
+        disabled.push("nonterminal_deadlocks");
+    }
+    if !model.checks.terminal_reachability {
+        disabled.push("terminal_reachability");
+    }
+    if !disabled.is_empty() {
+        return Err(format!(
+            "strict verification requires baseline checks to remain enabled: {}",
+            disabled.join(", ")
+        ));
+    }
+    Ok(())
 }
 
 fn check_model(model: &StateMachine, max_states: usize) -> Result<CheckReport, String> {

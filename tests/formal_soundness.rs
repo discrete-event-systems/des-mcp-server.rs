@@ -1,7 +1,7 @@
 //! Regression and independent-oracle tests for the verifier itself.
 use std::collections::BTreeSet;
 
-use des_mcp_server::formal::{DEFAULT_MAX_STATES, check_json};
+use des_mcp_server::formal::{DEFAULT_MAX_STATES, check_json, check_json_strict};
 use serde_json::{Value, json};
 
 fn comparison(left: &str, right: &str, op: &str) -> String {
@@ -207,4 +207,84 @@ fn every_three_state_graph_agrees_with_an_independent_transitive_closure_oracle(
             }
         }
     }
+}
+
+
+#[test]
+fn strict_profile_rejects_policy_bypasses_and_specification_drift() {
+    let passing = comparison("0", "0", "eq");
+    assert!(check_json_strict(&passing, DEFAULT_MAX_STATES).unwrap().passed());
+
+    let no_invariants = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "no safety property",
+        "initial": "done",
+        "states": {"done": {}},
+        "terminal_states": ["done"]
+    });
+    assert!(
+        check_json_strict(&no_invariants.to_string(), DEFAULT_MAX_STATES)
+            .unwrap_err()
+            .contains("at least one safety invariant")
+    );
+
+    let disabled_checks = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "disabled baseline",
+        "initial": "done",
+        "states": {"done": {"ok": true}},
+        "terminal_states": ["done"],
+        "checks": {
+            "deterministic_events": false,
+            "nonterminal_deadlocks": true,
+            "terminal_reachability": true
+        },
+        "invariants": [{
+            "name": "safe",
+            "assert": [{"path": "/ok", "op": "eq", "right": {"value": true}}]
+        }]
+    });
+    assert!(
+        check_json_strict(&disabled_checks.to_string(), DEFAULT_MAX_STATES)
+            .unwrap_err()
+            .contains("deterministic_events")
+    );
+
+    let unreachable_state = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "drift",
+        "initial": "done",
+        "states": {"done": {"ok": true}, "unused": {"ok": true}},
+        "terminal_states": ["done"],
+        "invariants": [{
+            "name": "safe",
+            "assert": [{"path": "/ok", "op": "eq", "right": {"value": true}}]
+        }]
+    });
+    assert!(
+        check_json_strict(&unreachable_state.to_string(), DEFAULT_MAX_STATES)
+            .unwrap_err()
+            .contains("warning")
+    );
+
+    let vacuous = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "vacuous",
+        "initial": "done",
+        "states": {"done": {"kind": "ordinary", "amount": 0}},
+        "terminal_states": ["done"],
+        "invariants": [{
+            "name": "protected amount",
+            "when": [{"path": "/kind", "op": "eq", "right": {"value": "protected"}}],
+            "assert": [{"path": "/amount", "op": "gte", "right": {"value": 0}}]
+        }]
+    });
+    assert!(
+        check_json_strict(&vacuous.to_string(), DEFAULT_MAX_STATES)
+            .unwrap_err()
+            .contains("guard never matched")
+    );
+
+    // Generic checking deliberately remains warning-tolerant for exploratory use.
+    assert!(check_json(&vacuous.to_string(), DEFAULT_MAX_STATES).unwrap().passed());
 }

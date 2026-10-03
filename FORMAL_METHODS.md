@@ -129,3 +129,21 @@ A formal-model PR should identify:
 - assumptions that remain outside the model.
 
 Never turn a failing obligation off merely to make CI green. Narrow an invalid property only when the revised assumption is explicit, reviewed, and backed by implementation evidence.
+
+
+## Organization baseline / strict mode
+
+The generic library API remains useful for exploratory models, so ordinary `check_json`
+continues to permit explicit check disabling and warning-only results. Organization CI
+must use the stricter profile:
+
+```sh
+cargo run --locked --bin des-formal-check -- --strict formal/**/*.json
+```
+
+Strict verification fails closed unless the model contains at least one safety
+invariant and keeps `deterministic_events`, `nonterminal_deadlocks`, and
+`terminal_reachability` enabled. It also rejects warning-only specifications,
+including unreachable declared states and conditional invariants whose guards
+never match a reachable state. These cases are specification drift or vacuity,
+not acceptable organization-baseline proof evidence.

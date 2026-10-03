@@ -1,9 +1,11 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use des_mcp_server::formal::{DEFAULT_MAX_STATES, HARD_MAX_STATES, MAX_MODEL_BYTES, check_json};
+use des_mcp_server::formal::{
+    DEFAULT_MAX_STATES, HARD_MAX_STATES, MAX_MODEL_BYTES, check_json, check_json_strict,
+};
 
-const USAGE: &str = "Usage: des-formal-check [--max-states N] [--] MODEL.json [MODEL.json ...]\n\
+const USAGE: &str = "Usage: des-formal-check [--strict] [--max-states N] [--] MODEL.json [MODEL.json ...]\n\
 \n\
 Checks every explicitly declared state reachable from the initial state.\n\
 Exit codes: 0 = all models pass, 1 = a model violates a check, 2 = usage/input error.";
@@ -41,6 +43,7 @@ fn read_model(path: &Path) -> Result<String, String> {
 fn run(args: impl IntoIterator<Item = String>) -> Result<i32, String> {
     let mut args = args.into_iter();
     let mut max_states = DEFAULT_MAX_STATES;
+    let mut strict = false;
     let mut files = Vec::new();
 
     while let Some(argument) = args.next() {
@@ -53,6 +56,7 @@ fn run(args: impl IntoIterator<Item = String>) -> Result<i32, String> {
                 files.extend(args.map(PathBuf::from));
                 break;
             }
+            "--strict" => strict = true,
             "--max-states" => {
                 let raw = args
                     .next()
@@ -79,7 +83,14 @@ fn run(args: impl IntoIterator<Item = String>) -> Result<i32, String> {
         if index > 0 {
             println!("\n---\n");
         }
-        match read_model(path).and_then(|raw| check_json(&raw, max_states)) {
+        let checked = read_model(path).and_then(|raw| {
+            if strict {
+                check_json_strict(&raw, max_states)
+            } else {
+                check_json(&raw, max_states)
+            }
+        });
+        match checked {
             Ok(report) => {
                 println!("{}", report.render_markdown());
                 model_failed |= !report.passed();
