@@ -147,3 +147,13 @@ invariant and keeps `deterministic_events`, `nonterminal_deadlocks`, and
 including unreachable declared states and conditional invariants whose guards
 never match a reachable state. These cases are specification drift or vacuity,
 not acceptable organization-baseline proof evidence.
+
+
+Strict organization models also reject exact duplicate transition declarations and
+require every declared terminal state to be absorbing (no outgoing transition,
+including self-loops). Otherwise a duplicated edge can conceal generator drift and
+a so-called terminal state would not actually denote completion.
+
+Markdown reports escape model-controlled prose and render counterexample traces as
+indented code rather than model-breakable fenced blocks. CLI filesystem diagnostics
+use debug-escaped paths so control characters in filenames cannot spoof logs.

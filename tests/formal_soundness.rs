@@ -295,3 +295,75 @@ fn strict_profile_rejects_policy_bypasses_and_specification_drift() {
             .passed()
     );
 }
+
+
+#[test]
+fn strict_profile_rejects_duplicate_edges_and_nonabsorbing_terminals() {
+    let duplicate = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "duplicate edge",
+        "initial": "start",
+        "states": {"start": {"ok": true}, "done": {"ok": true}},
+        "transitions": [
+            {"event": "finish", "from": "start", "to": "done"},
+            {"event": "finish", "from": "start", "to": "done"}
+        ],
+        "terminal_states": ["done"],
+        "invariants": [{
+            "name": "safe",
+            "assert": [{"path": "/ok", "op": "eq", "right": {"value": true}}]
+        }]
+    });
+    assert!(check_json(&duplicate.to_string(), DEFAULT_MAX_STATES).unwrap().passed());
+    assert!(
+        check_json_strict(&duplicate.to_string(), DEFAULT_MAX_STATES)
+            .unwrap_err()
+            .contains("duplicate transition")
+    );
+
+    let terminal_loop = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "terminal loop",
+        "initial": "done",
+        "states": {"done": {"ok": true}},
+        "transitions": [{"event": "again", "from": "done", "to": "done"}],
+        "terminal_states": ["done"],
+        "invariants": [{
+            "name": "safe",
+            "assert": [{"path": "/ok", "op": "eq", "right": {"value": true}}]
+        }]
+    });
+    assert!(
+        check_json(&terminal_loop.to_string(), DEFAULT_MAX_STATES)
+            .unwrap()
+            .passed()
+    );
+    assert!(
+        check_json_strict(&terminal_loop.to_string(), DEFAULT_MAX_STATES)
+            .unwrap_err()
+            .contains("absorbing")
+    );
+}
+
+#[test]
+fn markdown_evidence_cannot_be_broken_by_model_labels() {
+    let raw = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "<b>`proof`</b>",
+        "initial": "start",
+        "states": {"start": {"ok": true}, "```bad": {"ok": false}},
+        "transitions": [{"event": "```go", "from": "start", "to": "```bad"}],
+        "terminal_states": ["```bad"],
+        "invariants": [{
+            "name": "safe",
+            "assert": [{"path": "/ok", "op": "eq", "right": {"value": true}}]
+        }]
+    });
+    let report = check_json(&raw.to_string(), DEFAULT_MAX_STATES).unwrap();
+    assert!(!report.passed());
+    let markdown = report.render_markdown();
+    assert!(markdown.contains("&lt;b&gt;\\`proof\\`&lt;/b&gt;"));
+    assert!(!markdown.contains("```text"));
+    assert!(markdown.contains("    start"));
+    assert!(markdown.contains("    --```go--> ```bad"));
+}

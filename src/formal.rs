@@ -167,7 +167,7 @@ impl CheckReport {
              - invariants: {}\n\
              - violations: {}\n\
              - warnings: {}\n",
-            self.model_name,
+            markdown_text(&self.model_name),
             self.reachable_states,
             self.declared_states,
             self.transitions,
@@ -180,12 +180,16 @@ impl CheckReport {
             for violation in &self.violations {
                 out.push_str(&format!(
                     "\n### `{}`\n\n{}\n",
-                    violation.code, violation.message
+                    violation.code,
+                    markdown_text(&violation.message)
                 ));
                 if !violation.trace.is_empty() {
-                    out.push_str("\nShortest counterexample trace:\n\n```text\n");
-                    out.push_str(&render_trace(&violation.trace));
-                    out.push_str("```\n");
+                    out.push_str("\nShortest counterexample trace:\n\n");
+                    for line in render_trace(&violation.trace).lines() {
+                        out.push_str("    ");
+                        out.push_str(line);
+                        out.push('\n');
+                    }
                 }
             }
             if self.omitted_violations > 0 {
@@ -198,7 +202,7 @@ impl CheckReport {
         if !self.warnings.is_empty() {
             out.push_str("\n## Warnings\n");
             for warning in &self.warnings {
-                out.push_str(&format!("\n- {warning}"));
+                out.push_str(&format!("\n- {}", markdown_text(warning)));
             }
             out.push('\n');
         }
@@ -265,6 +269,28 @@ fn validate_strict_profile(model: &StateMachine) -> Result<(), String> {
             "strict verification requires baseline checks to remain enabled: {}",
             disabled.join(", ")
         ));
+    }
+
+    let terminals: BTreeSet<&str> = model.terminal_states.iter().map(String::as_str).collect();
+    let mut transitions = BTreeSet::new();
+    for transition in &model.transitions {
+        let identity = (
+            transition.from.as_str(),
+            transition.event.as_str(),
+            transition.to.as_str(),
+        );
+        if !transitions.insert(identity) {
+            return Err(format!(
+                "strict verification rejects duplicate transition {:?}: {:?} -> {:?}",
+                transition.event, transition.from, transition.to
+            ));
+        }
+        if terminals.contains(transition.from.as_str()) {
+            return Err(format!(
+                "strict verification requires terminal state {:?} to be absorbing",
+                transition.from
+            ));
+        }
     }
     Ok(())
 }
@@ -792,6 +818,23 @@ fn trace(initial: &str, target: &str, predecessors: &Predecessors) -> Vec<TraceS
     }
     result.reverse();
     result
+}
+
+fn markdown_text(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '\\' | '`' | '*' | '_' | '{' | '}' | '[' | ']' | '(' | ')' | '#' | '!' | '|' => {
+                out.push('\\');
+                out.push(character);
+            }
+            _ => out.push(character),
+        }
+    }
+    out
 }
 
 fn render_trace(trace: &[TraceStep]) -> String {

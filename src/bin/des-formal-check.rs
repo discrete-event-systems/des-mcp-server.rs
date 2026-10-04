@@ -96,7 +96,7 @@ fn run(args: impl IntoIterator<Item = String>) -> Result<i32, String> {
                 model_failed |= !report.passed();
             }
             Err(error) => {
-                eprintln!("{}: {error}", path.display());
+                eprintln!("{path:?}: {error}");
                 input_failed = true;
             }
         }
