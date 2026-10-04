@@ -424,3 +424,54 @@ fn pointer_size_and_warning_volume_are_bounded() {
             .contains("150 warning(s)")
     );
 }
+
+
+#[test]
+fn retained_counterexample_traces_have_a_fixed_memory_bound() {
+    let last = 2_100usize;
+    let states: serde_json::Map<String, Value> = (0..=last)
+        .map(|index| {
+            (
+                format!("s{index:04}"),
+                json!({"bad": index == last}),
+            )
+        })
+        .collect();
+    let transitions: Vec<Value> = (0..last)
+        .map(|index| {
+            json!({
+                "event": "next",
+                "from": format!("s{index:04}"),
+                "to": format!("s{:04}", index + 1)
+            })
+        })
+        .collect();
+    let raw = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "long counterexample",
+        "initial": "s0000",
+        "states": states,
+        "transitions": transitions,
+        "terminal_states": [format!("s{last:04}")],
+        "invariants": [{
+            "name": "never bad",
+            "assert": [{"path": "/bad", "op": "eq", "right": {"value": false}}]
+        }]
+    });
+
+    let report = check_json(&raw.to_string(), DEFAULT_MAX_STATES).unwrap();
+    let violation = report
+        .violations
+        .iter()
+        .find(|violation| violation.code == "invariant-violation")
+        .unwrap();
+    assert_eq!(violation.trace.len(), 2_048);
+    assert_eq!(violation.trace_omitted_steps, 53);
+    assert_eq!(violation.trace.first().unwrap().state, "s0000");
+    assert_eq!(violation.trace.last().unwrap().state, "s2100");
+    assert!(
+        report
+            .render_markdown()
+            .contains("53 intermediate step(s) omitted")
+    );
+}

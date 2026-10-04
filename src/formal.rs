@@ -20,6 +20,8 @@ const MAX_PREDICATE_VISITS: usize = 2_000_000;
 const MAX_JSON_POINTER_BYTES: usize = 4_096;
 const MAX_VIOLATIONS: usize = 100;
 const MAX_WARNINGS: usize = 100;
+const MAX_TRACE_STEPS: usize = 2_048;
+const TRACE_EDGE_STEPS: usize = MAX_TRACE_STEPS / 2;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -134,6 +136,7 @@ pub struct Violation {
     pub code: &'static str,
     pub message: String,
     pub trace: Vec<TraceStep>,
+    pub trace_omitted_steps: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -193,7 +196,7 @@ impl CheckReport {
                 ));
                 if !violation.trace.is_empty() {
                     out.push_str("\nShortest counterexample trace:\n\n");
-                    for line in render_trace(&violation.trace).lines() {
+                    for line in render_trace(violation).lines() {
                         out.push_str("    ");
                         out.push_str(line);
                         out.push('\n');
@@ -823,27 +826,67 @@ fn describe(predicate: &Predicate) -> String {
     }
 }
 
-fn trace(initial: &str, target: &str, predecessors: &Predecessors) -> Vec<TraceStep> {
-    let mut result = vec![TraceStep {
-        state: target.to_string(),
-        event: None,
-    }];
+struct BoundedTrace {
+    steps: Vec<TraceStep>,
+    omitted_steps: usize,
+}
+
+fn trace(initial: &str, target: &str, predecessors: &Predecessors) -> BoundedTrace {
+    let mut full_reverse = Vec::with_capacity(MAX_TRACE_STEPS);
+    let mut target_reverse = Vec::with_capacity(TRACE_EDGE_STEPS);
+    let mut initial_reverse = VecDeque::with_capacity(TRACE_EDGE_STEPS + 1);
     let mut current = target.to_string();
-    while current != initial {
-        let Some((parent, event)) = predecessors.get(&current) else {
+    let mut total_steps = 0usize;
+
+    loop {
+        let event = if current == initial {
+            None
+        } else {
+            predecessors
+                .get(&current)
+                .map(|(_, event)| event.clone())
+        };
+        let step = TraceStep {
+            state: current.clone(),
+            event,
+        };
+
+        if full_reverse.len() < MAX_TRACE_STEPS {
+            full_reverse.push(step.clone());
+        }
+        if total_steps < TRACE_EDGE_STEPS {
+            target_reverse.push(step.clone());
+        }
+        initial_reverse.push_back(step);
+        if initial_reverse.len() > TRACE_EDGE_STEPS {
+            initial_reverse.pop_front();
+        }
+        total_steps += 1;
+
+        if current == initial {
+            break;
+        }
+        let Some((parent, _)) = predecessors.get(&current) else {
             break;
         };
-        if let Some(step) = result.last_mut() {
-            step.event = Some(event.clone());
-        }
         current = parent.clone();
-        result.push(TraceStep {
-            state: current.clone(),
-            event: None,
-        });
     }
-    result.reverse();
-    result
+
+    if total_steps <= MAX_TRACE_STEPS {
+        full_reverse.reverse();
+        return BoundedTrace {
+            steps: full_reverse,
+            omitted_steps: 0,
+        };
+    }
+
+    let mut steps: Vec<TraceStep> = initial_reverse.into_iter().rev().collect();
+    target_reverse.reverse();
+    steps.extend(target_reverse);
+    BoundedTrace {
+        omitted_steps: total_steps.saturating_sub(steps.len()),
+        steps,
+    }
 }
 
 fn markdown_text(value: &str) -> String {
@@ -863,17 +906,40 @@ fn markdown_text(value: &str) -> String {
     out
 }
 
-fn render_trace(trace: &[TraceStep]) -> String {
-    let Some(first) = trace.first() else {
+fn render_trace(violation: &Violation) -> String {
+    let Some(first) = violation.trace.first() else {
         return String::new();
     };
     let mut out = format!("{}\n", first.state);
-    for step in trace.iter().skip(1) {
+    let split = if violation.trace_omitted_steps > 0 {
+        TRACE_EDGE_STEPS.min(violation.trace.len())
+    } else {
+        violation.trace.len()
+    };
+
+    for step in violation.trace[1..split].iter() {
         out.push_str(&format!(
             "  --{}--> {}\n",
             step.event.as_deref().unwrap_or("?"),
             step.state
         ));
+    }
+
+    if violation.trace_omitted_steps > 0 {
+        out.push_str(&format!(
+            "... {} intermediate step(s) omitted ...\n",
+            violation.trace_omitted_steps
+        ));
+        if let Some(first_suffix) = violation.trace.get(split) {
+            out.push_str(&format!("{}\n", first_suffix.state));
+            for step in violation.trace[(split + 1)..].iter() {
+                out.push_str(&format!(
+                    "  --{}--> {}\n",
+                    step.event.as_deref().unwrap_or("?"),
+                    step.state
+                ));
+            }
+        }
     }
     out
 }
@@ -886,12 +952,13 @@ fn add_warning(report: &mut CheckReport, warning: String) {
     }
 }
 
-fn add(report: &mut CheckReport, code: &'static str, message: String, trace: Vec<TraceStep>) {
+fn add(report: &mut CheckReport, code: &'static str, message: String, trace: BoundedTrace) {
     if report.violations.len() < MAX_VIOLATIONS {
         report.violations.push(Violation {
             code,
             message,
-            trace,
+            trace: trace.steps,
+            trace_omitted_steps: trace.omitted_steps,
         });
     } else {
         report.omitted_violations += 1;

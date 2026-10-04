@@ -164,3 +164,11 @@ warning details at 100 while preserving the exact total warning count. This prev
 large pointer traversal and vacuity-warning amplification from turning a bounded
 model file into disproportionate CPU, memory, or output work. Strict mode still
 rejects the full warning count even when only the first warning details are retained.
+
+
+Counterexample evidence retains at most 2,048 trace states per violation: the first
+1,024 and final 1,024 states of the shortest path. Longer paths record the exact
+number of omitted intermediate steps and render an explicit omission marker. This
+keeps up to 100 retained violations from multiplying a large state bound into
+unbounded resident trace memory while preserving both the initial state and the
+actual counterexample state.
