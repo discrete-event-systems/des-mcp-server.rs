@@ -929,6 +929,9 @@ fn markdown_text(value: &str) -> String {
             '&' => out.push_str("&amp;"),
             '<' => out.push_str("&lt;"),
             '>' => out.push_str("&gt;"),
+            character if unsafe_display_character(character) => {
+                out.push_str(&format!("\\u{{{:04x}}}", character as u32));
+            }
             '\\' | '`' | '*' | '_' | '{' | '}' | '[' | ']' | '(' | ')' | '#' | '!' | '|' => {
                 out.push('\\');
                 out.push(character);
