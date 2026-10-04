@@ -461,6 +461,7 @@ fn retained_counterexample_traces_have_a_fixed_memory_bound() {
         .unwrap();
     assert_eq!(violation.trace.len(), 2_048);
     assert_eq!(violation.trace_omitted_steps, 53);
+    assert_eq!(violation.trace_omission_after, Some(1_024));
     assert_eq!(violation.trace.first().unwrap().state, "s0000");
     assert_eq!(violation.trace.last().unwrap().state, "s2100");
     assert!(

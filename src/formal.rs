@@ -137,6 +137,7 @@ pub struct Violation {
     pub message: String,
     pub trace: Vec<TraceStep>,
     pub trace_omitted_steps: usize,
+    pub trace_omission_after: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -909,11 +910,10 @@ fn render_trace(violation: &Violation) -> String {
         return String::new();
     };
     let mut out = format!("{}\n", first.state);
-    let split = if violation.trace_omitted_steps > 0 {
-        TRACE_EDGE_STEPS.min(violation.trace.len())
-    } else {
-        violation.trace.len()
-    };
+    let split = violation
+        .trace_omission_after
+        .unwrap_or(violation.trace.len())
+        .min(violation.trace.len());
 
     for step in violation.trace[1..split].iter() {
         out.push_str(&format!(
@@ -955,6 +955,7 @@ fn add(report: &mut CheckReport, code: &'static str, message: String, trace: Bou
         report.violations.push(Violation {
             code,
             message,
+            trace_omission_after: (trace.omitted_steps > 0).then_some(TRACE_EDGE_STEPS),
             trace: trace.steps,
             trace_omitted_steps: trace.omitted_steps,
         });
