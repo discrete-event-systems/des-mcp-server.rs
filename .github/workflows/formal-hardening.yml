@@ -2,7 +2,9 @@ name: formal-hardening
 
 on:
   pull_request:
-    branches: [feat/bounded-formal-model-checker]
+    branches: [main, feat/bounded-formal-model-checker]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
