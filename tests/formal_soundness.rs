@@ -425,17 +425,11 @@ fn pointer_size_and_warning_volume_are_bounded() {
     );
 }
 
-
 #[test]
 fn retained_counterexample_traces_have_a_fixed_memory_bound() {
     let last = 2_100usize;
     let states: serde_json::Map<String, Value> = (0..=last)
-        .map(|index| {
-            (
-                format!("s{index:04}"),
-                json!({"bad": index == last}),
-            )
-        })
+        .map(|index| (format!("s{index:04}"), json!({"bad": index == last})))
         .collect();
     let transitions: Vec<Value> = (0..last)
         .map(|index| {

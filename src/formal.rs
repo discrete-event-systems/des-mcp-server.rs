@@ -842,9 +842,7 @@ fn trace(initial: &str, target: &str, predecessors: &Predecessors) -> BoundedTra
         let event = if current == initial {
             None
         } else {
-            predecessors
-                .get(&current)
-                .map(|(_, event)| event.clone())
+            predecessors.get(&current).map(|(_, event)| event.clone())
         };
         let step = TraceStep {
             state: current.clone(),
