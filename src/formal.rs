@@ -1105,4 +1105,44 @@ mod tests {
         assert!(check_json(&PASSING.replace(MODEL_SCHEMA, "v2"), 10).is_err());
         assert!(check_json(PASSING, 2).is_err());
     }
+
+    #[test]
+    fn omitted_violations_do_not_construct_counterexample_traces() {
+        use std::cell::Cell;
+
+        let trace_builds = Cell::new(0usize);
+        let mut report = CheckReport {
+            model_name: "trace laziness".to_string(),
+            declared_states: 1,
+            reachable_states: 1,
+            transitions: 0,
+            invariants: 1,
+            violations: Vec::new(),
+            omitted_violations: 0,
+            warnings: Vec::new(),
+            omitted_warnings: 0,
+        };
+
+        for _ in 0..(MAX_VIOLATIONS + 25) {
+            add(
+                &mut report,
+                "test-violation",
+                "synthetic".to_string(),
+                || {
+                    trace_builds.set(trace_builds.get() + 1);
+                    BoundedTrace {
+                        steps: vec![TraceStep {
+                            state: "s0".to_string(),
+                            event: None,
+                        }],
+                        omitted_steps: 0,
+                    }
+                },
+            );
+        }
+
+        assert_eq!(report.violations.len(), MAX_VIOLATIONS);
+        assert_eq!(report.omitted_violations, 25);
+        assert_eq!(trace_builds.get(), MAX_VIOLATIONS);
+    }
 }
