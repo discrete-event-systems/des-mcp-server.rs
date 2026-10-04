@@ -296,7 +296,6 @@ fn strict_profile_rejects_policy_bypasses_and_specification_drift() {
     );
 }
 
-
 #[test]
 fn strict_profile_rejects_duplicate_edges_and_nonabsorbing_terminals() {
     let duplicate = json!({
@@ -314,7 +313,11 @@ fn strict_profile_rejects_duplicate_edges_and_nonabsorbing_terminals() {
             "assert": [{"path": "/ok", "op": "eq", "right": {"value": true}}]
         }]
     });
-    assert!(check_json(&duplicate.to_string(), DEFAULT_MAX_STATES).unwrap().passed());
+    assert!(
+        check_json(&duplicate.to_string(), DEFAULT_MAX_STATES)
+            .unwrap()
+            .passed()
+    );
     assert!(
         check_json_strict(&duplicate.to_string(), DEFAULT_MAX_STATES)
             .unwrap_err()
