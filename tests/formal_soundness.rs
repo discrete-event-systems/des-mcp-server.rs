@@ -371,7 +371,6 @@ fn markdown_evidence_cannot_be_broken_by_model_labels() {
     assert!(markdown.contains("    --```go--> ```bad"));
 }
 
-
 #[test]
 fn pointer_size_and_warning_volume_are_bounded() {
     let too_long = format!("/{}", "a".repeat(4_096));
@@ -414,7 +413,11 @@ fn pointer_size_and_warning_volume_are_bounded() {
     assert_eq!(report.warning_count(), 150);
     assert_eq!(report.warnings.len(), 100);
     assert_eq!(report.omitted_warnings, 50);
-    assert!(report.render_markdown().contains("50 additional warning(s) omitted"));
+    assert!(
+        report
+            .render_markdown()
+            .contains("50 additional warning(s) omitted")
+    );
     assert!(
         check_json_strict(&many_warnings.to_string(), DEFAULT_MAX_STATES)
             .unwrap_err()
