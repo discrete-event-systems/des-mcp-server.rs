@@ -17,6 +17,7 @@ pub const DEFAULT_MAX_STATES: usize = 10_000;
 pub const HARD_MAX_STATES: usize = 100_000;
 pub const MAX_MODEL_BYTES: usize = 4_000_000;
 const MAX_PREDICATE_VISITS: usize = 2_000_000;
+const MAX_POINTER_WORK_BYTES: usize = 64_000_000;
 const MAX_JSON_POINTER_BYTES: usize = 4_096;
 const MAX_VIOLATIONS: usize = 100;
 const MAX_WARNINGS: usize = 100;
@@ -406,6 +407,25 @@ fn validate(model: &StateMachine, max_states: usize) -> Result<(), String> {
             "predicate work exceeds {MAX_PREDICATE_VISITS} state/predicate visits"
         ));
     }
+    let pointer_bytes = model.invariants.iter().fold(0usize, |sum, invariant| {
+        invariant
+            .when
+            .iter()
+            .chain(&invariant.assertions)
+            .fold(sum, |sum, predicate| {
+                let right_path_bytes = match predicate.right.as_ref() {
+                    Some(Operand::Path(path)) => path.path.len(),
+                    Some(Operand::Value(_)) | None => 0,
+                };
+                sum.saturating_add(predicate.path.len())
+                    .saturating_add(right_path_bytes)
+            })
+    });
+    if model.states.len().saturating_mul(pointer_bytes) > MAX_POINTER_WORK_BYTES {
+        return Err(format!(
+            "JSON Pointer work exceeds {MAX_POINTER_WORK_BYTES} state/pointer bytes"
+        ));
+    }
     if !model.states.contains_key(&model.initial) {
         return Err(format!("unknown initial state {:?}", model.initial));
     }
@@ -455,10 +475,27 @@ fn validate(model: &StateMachine, max_states: usize) -> Result<(), String> {
 }
 
 fn label(value: &str, what: &str) -> Result<(), String> {
-    if value.is_empty() || value.len() > 128 || value.chars().any(char::is_control) {
+    if value.is_empty()
+        || value.len() > 128
+        || value.chars().any(unsafe_display_character)
+    {
         return Err(format!("invalid {what}: {value:?}"));
     }
     Ok(())
+}
+
+fn unsafe_display_character(character: char) -> bool {
+    character.is_control()
+        || matches!(
+            character,
+            '\u{061c}'
+                | '\u{200e}'
+                | '\u{200f}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202a}'..='\u{202e}'
+                | '\u{2066}'..='\u{2069}'
+        )
 }
 
 fn validate_predicate(
@@ -613,7 +650,7 @@ fn check_invariants(
                                 "invariant {:?} guard failed in {state_name:?}: {error}",
                                 invariant.name
                             ),
-                            trace(&model.initial, state_name, predecessors),
+                            || trace(&model.initial, state_name, predecessors),
                         );
                         applies = false;
                         break;
@@ -635,7 +672,7 @@ fn check_invariants(
                             invariant.name,
                             describe(predicate)
                         ),
-                        trace(&model.initial, state_name, predecessors),
+                        || trace(&model.initial, state_name, predecessors),
                     ),
                     Err(error) => add(
                         report,
@@ -644,7 +681,7 @@ fn check_invariants(
                             "invariant {:?} assertion failed in {state_name:?}: {error}",
                             invariant.name
                         ),
-                        trace(&model.initial, state_name, predecessors),
+                        || trace(&model.initial, state_name, predecessors),
                     ),
                 }
             }
@@ -687,7 +724,7 @@ fn check_determinism(
                     "state {state:?} maps event {event:?} to: {}",
                     quoted(destinations)
                 ),
-                trace(&model.initial, state, predecessors),
+                || trace(&model.initial, state, predecessors),
             );
         }
     }
@@ -707,7 +744,7 @@ fn check_deadlocks(
                 report,
                 "nonterminal-deadlock",
                 format!("non-terminal state {state:?} has no outgoing transition"),
-                trace(&model.initial, state, predecessors),
+                || trace(&model.initial, state, predecessors),
             );
         }
     }
@@ -742,7 +779,7 @@ fn check_terminal_reachability(
                 report,
                 "terminal-unreachable",
                 format!("state {state:?} cannot reach a terminal state"),
-                trace(&model.initial, state, predecessors),
+                || trace(&model.initial, state, predecessors),
             );
         }
     }
@@ -950,8 +987,12 @@ fn add_warning(report: &mut CheckReport, warning: String) {
     }
 }
 
-fn add(report: &mut CheckReport, code: &'static str, message: String, trace: BoundedTrace) {
+fn add<F>(report: &mut CheckReport, code: &'static str, message: String, trace: F)
+where
+    F: FnOnce() -> BoundedTrace,
+{
     if report.violations.len() < MAX_VIOLATIONS {
+        let trace = trace();
         report.violations.push(Violation {
             code,
             message,
