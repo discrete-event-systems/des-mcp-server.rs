@@ -475,10 +475,7 @@ fn validate(model: &StateMachine, max_states: usize) -> Result<(), String> {
 }
 
 fn label(value: &str, what: &str) -> Result<(), String> {
-    if value.is_empty()
-        || value.len() > 128
-        || value.chars().any(unsafe_display_character)
-    {
+    if value.is_empty() || value.len() > 128 || value.chars().any(unsafe_display_character) {
         return Err(format!("invalid {what}: {value:?}"));
     }
     Ok(())
