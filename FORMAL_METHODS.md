@@ -157,3 +157,10 @@ a so-called terminal state would not actually denote completion.
 Markdown reports escape model-controlled prose and render counterexample traces as
 indented code rather than model-breakable fenced blocks. CLI filesystem diagnostics
 use debug-escaped paths so control characters in filenames cannot spoof logs.
+
+
+Resource hardening also bounds each JSON Pointer to 4,096 bytes and caps retained
+warning details at 100 while preserving the exact total warning count. This prevents
+large pointer traversal and vacuity-warning amplification from turning a bounded
+model file into disproportionate CPU, memory, or output work. Strict mode still
+rejects the full warning count even when only the first warning details are retained.

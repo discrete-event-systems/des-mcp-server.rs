@@ -370,3 +370,54 @@ fn markdown_evidence_cannot_be_broken_by_model_labels() {
     assert!(markdown.contains("    start"));
     assert!(markdown.contains("    --```go--> ```bad"));
 }
+
+
+#[test]
+fn pointer_size_and_warning_volume_are_bounded() {
+    let too_long = format!("/{}", "a".repeat(4_096));
+    let oversized_pointer = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "oversized pointer",
+        "initial": "done",
+        "states": {"done": {"ok": true}},
+        "terminal_states": ["done"],
+        "invariants": [{
+            "name": "oversized path",
+            "assert": [{"path": too_long, "op": "exists"}]
+        }]
+    });
+    assert!(
+        check_json(&oversized_pointer.to_string(), DEFAULT_MAX_STATES)
+            .unwrap_err()
+            .contains("JSON Pointer exceeds")
+    );
+
+    let invariants: Vec<Value> = (0..150)
+        .map(|index| {
+            json!({
+                "name": format!("vacuous-{index}"),
+                "when": [{"path": "/kind", "op": "eq", "right": {"value": "protected"}}],
+                "assert": [{"path": "/amount", "op": "gte", "right": {"value": 0}}]
+            })
+        })
+        .collect();
+    let many_warnings = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "bounded warnings",
+        "initial": "done",
+        "states": {"done": {"kind": "ordinary", "amount": 0}},
+        "terminal_states": ["done"],
+        "invariants": invariants
+    });
+    let report = check_json(&many_warnings.to_string(), DEFAULT_MAX_STATES).unwrap();
+    assert!(report.passed());
+    assert_eq!(report.warning_count(), 150);
+    assert_eq!(report.warnings.len(), 100);
+    assert_eq!(report.omitted_warnings, 50);
+    assert!(report.render_markdown().contains("50 additional warning(s) omitted"));
+    assert!(
+        check_json_strict(&many_warnings.to_string(), DEFAULT_MAX_STATES)
+            .unwrap_err()
+            .contains("150 warning(s)")
+    );
+}

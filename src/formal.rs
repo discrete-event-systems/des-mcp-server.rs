@@ -17,7 +17,9 @@ pub const DEFAULT_MAX_STATES: usize = 10_000;
 pub const HARD_MAX_STATES: usize = 100_000;
 pub const MAX_MODEL_BYTES: usize = 4_000_000;
 const MAX_PREDICATE_VISITS: usize = 2_000_000;
+const MAX_JSON_POINTER_BYTES: usize = 4_096;
 const MAX_VIOLATIONS: usize = 100;
+const MAX_WARNINGS: usize = 100;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -144,6 +146,7 @@ pub struct CheckReport {
     pub violations: Vec<Violation>,
     pub omitted_violations: usize,
     pub warnings: Vec<String>,
+    pub omitted_warnings: usize,
 }
 
 impl CheckReport {
@@ -155,6 +158,11 @@ impl CheckReport {
     #[must_use]
     pub fn violation_count(&self) -> usize {
         self.violations.len() + self.omitted_violations
+    }
+
+    #[must_use]
+    pub fn warning_count(&self) -> usize {
+        self.warnings.len() + self.omitted_warnings
     }
 
     #[must_use]
@@ -173,7 +181,7 @@ impl CheckReport {
             self.transitions,
             self.invariants,
             self.violation_count(),
-            self.warnings.len()
+            self.warning_count()
         );
         if !self.violations.is_empty() {
             out.push_str("\n## Violations\n");
@@ -199,10 +207,16 @@ impl CheckReport {
                 ));
             }
         }
-        if !self.warnings.is_empty() {
+        if self.warning_count() > 0 {
             out.push_str("\n## Warnings\n");
             for warning in &self.warnings {
                 out.push_str(&format!("\n- {}", markdown_text(warning)));
+            }
+            if self.omitted_warnings > 0 {
+                out.push_str(&format!(
+                    "\n\n_{} additional warning(s) omitted._",
+                    self.omitted_warnings
+                ));
             }
             out.push('\n');
         }
@@ -229,7 +243,7 @@ pub fn check_json_strict(raw: &str, max_states: usize) -> Result<CheckReport, St
     validate_strict_profile(&model)?;
     // Preserve real counterexamples as exit-1 proof failures. Warning-only
     // specifications are rejected as invalid strict-policy evidence.
-    if report.passed() && !report.warnings.is_empty() {
+    if report.passed() && report.warning_count() > 0 {
         let preview = report
             .warnings
             .iter()
@@ -239,7 +253,7 @@ pub fn check_json_strict(raw: &str, max_states: usize) -> Result<CheckReport, St
             .join("; ");
         return Err(format!(
             "strict verification rejects {} warning(s): {preview}",
-            report.warnings.len()
+            report.warning_count()
         ));
     }
     Ok(report)
@@ -310,6 +324,7 @@ fn check_model(model: &StateMachine, max_states: usize) -> Result<CheckReport, S
         violations: Vec::new(),
         omitted_violations: 0,
         warnings: Vec::new(),
+        omitted_warnings: 0,
     };
 
     check_invariants(model, &order, &predecessors, &mut report);
@@ -344,11 +359,14 @@ fn check_model(model: &StateMachine, max_states: usize) -> Result<CheckReport, S
         .map(String::as_str)
         .collect();
     if !unreachable.is_empty() {
-        report.warnings.push(format!(
-            "{} unreachable state(s): {}",
-            unreachable.len(),
-            quoted(unreachable.iter().copied().take(50))
-        ));
+        add_warning(
+            &mut report,
+            format!(
+                "{} unreachable state(s): {}",
+                unreachable.len(),
+                quoted(unreachable.iter().copied().take(50))
+            ),
+        );
     }
     Ok(report)
 }
@@ -479,6 +497,11 @@ fn validate_predicate(
 }
 
 fn pointer(path: &str) -> Result<(), String> {
+    if path.len() > MAX_JSON_POINTER_BYTES {
+        return Err(format!(
+            "JSON Pointer exceeds {MAX_JSON_POINTER_BYTES} bytes"
+        ));
+    }
     if path.is_empty() {
         return Ok(());
     }
@@ -625,10 +648,13 @@ fn check_invariants(
     }
     for (invariant, hits) in model.invariants.iter().zip(guard_hits) {
         if !invariant.when.is_empty() && hits == 0 {
-            report.warnings.push(format!(
-                "invariant {:?} guard never matched a reachable state",
-                invariant.name
-            ));
+            add_warning(
+                report,
+                format!(
+                    "invariant {:?} guard never matched a reachable state",
+                    invariant.name
+                ),
+            );
         }
     }
 }
@@ -850,6 +876,14 @@ fn render_trace(trace: &[TraceStep]) -> String {
         ));
     }
     out
+}
+
+fn add_warning(report: &mut CheckReport, warning: String) {
+    if report.warnings.len() < MAX_WARNINGS {
+        report.warnings.push(warning);
+    } else {
+        report.omitted_warnings += 1;
+    }
 }
 
 fn add(report: &mut CheckReport, code: &'static str, message: String, trace: Vec<TraceStep>) {
