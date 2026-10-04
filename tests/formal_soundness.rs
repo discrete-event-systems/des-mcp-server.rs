@@ -519,3 +519,29 @@ fn weighted_pointer_work_and_display_spoofing_are_rejected() {
         assert!(check_json(&raw.to_string(), DEFAULT_MAX_STATES).is_err());
     }
 }
+
+#[test]
+fn report_prose_escapes_unicode_direction_controls_from_state_values() {
+    let raw = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "payload rendering",
+        "initial": "done",
+        "states": {"done": {"value": "safe\u{202e}txt"}},
+        "terminal_states": ["done"],
+        "invariants": [{
+            "name": "must match",
+            "assert": [{
+                "path": "/value",
+                "op": "eq",
+                "right": {"value": "expected\u{2066}txt"}
+            }]
+        }]
+    });
+    let report = check_json(&raw.to_string(), DEFAULT_MAX_STATES).unwrap();
+    assert!(!report.passed());
+    let markdown = report.render_markdown();
+    assert!(!markdown.contains('\u{202e}'));
+    assert!(!markdown.contains('\u{2066}'));
+    assert!(markdown.contains("\\u{202e}"));
+    assert!(markdown.contains("\\u{2066}"));
+}
