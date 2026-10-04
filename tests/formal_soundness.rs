@@ -470,3 +470,52 @@ fn retained_counterexample_traces_have_a_fixed_memory_bound() {
             .contains("53 intermediate step(s) omitted")
     );
 }
+
+#[test]
+fn weighted_pointer_work_and_display_spoofing_are_rejected() {
+    let states: serde_json::Map<String, Value> = (0..100)
+        .map(|index| (format!("s{index}"), json!({"ok": true})))
+        .collect();
+    let long_pointer = format!("/{}", "a".repeat(4_000));
+    let invariants: Vec<Value> = (0..200)
+        .map(|index| {
+            json!({
+                "name": format!("pointer-{index}"),
+                "assert": [{
+                    "path": long_pointer,
+                    "op": "exists"
+                }]
+            })
+        })
+        .collect();
+    let raw = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "pointer work",
+        "initial": "s0",
+        "states": states,
+        "terminal_states": ["s0"],
+        "invariants": invariants
+    });
+    let error = check_json(&raw.to_string(), DEFAULT_MAX_STATES).unwrap_err();
+    assert!(error.contains("JSON Pointer work exceeds"), "{error}");
+
+    for spoofed_name in [
+        "safe\u{202e}txt",
+        "safe\u{2066}txt",
+        "safe\u{2028}txt",
+        "safe\u{061c}txt",
+    ] {
+        let raw = json!({
+            "$schema": "des/state-machine/v1",
+            "name": spoofed_name,
+            "initial": "done",
+            "states": {"done": {"ok": true}},
+            "terminal_states": ["done"],
+            "invariants": [{
+                "name": "safe",
+                "assert": [{"path": "/ok", "op": "eq", "right": {"value": true}}]
+            }]
+        });
+        assert!(check_json(&raw.to_string(), DEFAULT_MAX_STATES).is_err());
+    }
+}
