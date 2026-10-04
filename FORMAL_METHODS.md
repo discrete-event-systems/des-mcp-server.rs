@@ -159,16 +159,23 @@ indented code rather than model-breakable fenced blocks. CLI filesystem diagnost
 use debug-escaped paths so control characters in filenames cannot spoof logs.
 
 
-Resource hardening also bounds each JSON Pointer to 4,096 bytes and caps retained
-warning details at 100 while preserving the exact total warning count. This prevents
-large pointer traversal and vacuity-warning amplification from turning a bounded
-model file into disproportionate CPU, memory, or output work. Strict mode still
-rejects the full warning count even when only the first warning details are retained.
+Resource hardening bounds each JSON Pointer to 4,096 bytes, caps retained warning
+details at 100 while preserving the exact total warning count, and enforces a
+64,000,000 state/pointer-byte work budget in addition to the state/predicate visit
+budget. This prevents a bounded 4 MB model from combining many states with long
+pointers into billions of pointer-byte traversals. Strict mode still rejects the
+full warning count even when only the first warning details are retained.
 
 
 Counterexample evidence retains at most 2,048 trace states per violation: the first
 1,024 and final 1,024 states of the shortest path. Longer paths record the exact
-number of omitted intermediate steps and render an explicit omission marker. This
-keeps up to 100 retained violations from multiplying a large state bound into
-unbounded resident trace memory while preserving both the initial state and the
-actual counterexample state.
+number of omitted intermediate steps and render an explicit omission marker. Trace
+construction is lazy once the 100 retained-violation cap is full, so omitted
+violations increment only the exact omitted count instead of repeatedly reconstructing
+long predecessor paths. This avoids quadratic path reconstruction on large trapped
+graphs while preserving both the initial state and the actual counterexample state.
+
+Evidence rendering rejects bidirectional/line-separator controls in model labels and
+escapes the same controls when they originate in payload-derived report prose. This
+prevents visually reordered or line-spoofed diagnostics without restricting ordinary
+Unicode state data.
