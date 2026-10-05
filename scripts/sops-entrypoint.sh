@@ -31,6 +31,7 @@ if [ -z "${SOPS_AGE_KEY:-}" ] && [ -z "${SOPS_AGE_KEY_FILE:-}" ]; then
 fi
 
 command -v sops >/dev/null 2>&1 || { echo "sops-entrypoint: sops binary not in image" >&2; exit 1; }
+command -v printenv >/dev/null 2>&1 || { echo "sops-entrypoint: printenv binary not in image" >&2; exit 1; }
 
 secrets=$(sops --decrypt --input-type dotenv --output-type dotenv "$SOPS_SECRETS_FILE") || {
   echo "sops-entrypoint: failed to decrypt $SOPS_SECRETS_FILE" >&2
@@ -45,7 +46,7 @@ while IFS='=' read -r key value; do
     '' | '#'* | sops_*) continue ;;
     *[!A-Za-z0-9_]* | [0-9]*) echo "sops-entrypoint: skipping invalid variable name" >&2; continue ;;
   esac
-  if [ -z "$(eval "printf '%s' \"\${$key+x}\"")" ]; then
+  if ! printenv "$key" >/dev/null 2>&1; then
     export "$key=$value"
   fi
 done <<EOF_SECRETS
