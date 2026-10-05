@@ -1,0 +1,38 @@
+# Browser smoke test: drive headless Chromium against the discrete-event-systems
+# org's LIVE public web surface (the GitHub Pages site at
+# https://discrete-event-systems.github.io). This hits an EXTERNAL live site, so
+# it is deliberately NOT a required PR gate — it runs on a schedule, on demand,
+# and on push to main, and must never block a pull request.
+name: web-smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * *" # daily at 06:17 UTC
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web-smoke
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - run: npm i -D @playwright/test@1.62.1
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test
