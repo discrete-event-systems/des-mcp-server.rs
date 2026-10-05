@@ -26,6 +26,10 @@ env/dec/
 *.age-key
 keys.txt
 sops-private*.txt
+tmp
+temp
+tmp/worktrees
+temp/worktrees
 
 # web-smoke (Playwright) — runner-only artifacts, never committed
 web-smoke/node_modules/
