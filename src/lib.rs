@@ -12,6 +12,7 @@ pub mod catalog;
 pub mod cloudflare;
 pub mod domains;
 pub mod fiducia;
+pub mod formal;
 pub mod github;
 pub mod models;
 pub mod org_map;
