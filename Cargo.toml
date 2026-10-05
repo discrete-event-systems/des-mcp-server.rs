@@ -26,7 +26,7 @@ path = "src/bin/des-formal-check.rs"
 ore-mcp-bootstrap = { git = "https://github.com/ORESoftware/mcp-rust-libs", rev = "a5c1ba9c50493ac625dd2fb175af21263d0d2801" }
 anyhow = "1"
 chrono = "0.4"
-opentelemetry = "0.32"
+opentelemetry = "0.33"
 opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic", "metrics", "trace"] }
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
 # Official Rust MCP SDK: stdio transport + #[tool] macros + schemars re-export.
