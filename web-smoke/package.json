@@ -1,0 +1,12 @@
+{
+  "name": "des-web-smoke",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Playwright browser-smoke tests for the discrete-event-systems org's live public web surface (GitHub Pages). Run by .github/workflows/web-smoke.yml, not part of the PR gate.",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1"
+  }
+}
