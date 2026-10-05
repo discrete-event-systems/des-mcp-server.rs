@@ -75,3 +75,37 @@ fn cli_distinguishes_invalid_input_from_a_failed_proof_obligation() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("invalid model JSON"));
     std::fs::remove_file(invalid).unwrap();
 }
+
+#[test]
+fn strict_cli_fails_closed_on_warning_only_and_disabled_baseline_models() {
+    let warning = PASSING_MODEL.replace(
+        "\"released\": {\"owners\": 0}",
+        "\"released\": {\"owners\": 0}, \"unused\": {\"owners\": 0}",
+    );
+    let warning_path = temp_model("strict-warning", &warning);
+    let warning_output = Command::new(env!("CARGO_BIN_EXE_des-formal-check"))
+        .arg("--strict")
+        .arg(&warning_path)
+        .output()
+        .unwrap();
+    assert_eq!(warning_output.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&warning_output.stderr).contains("strict verification rejects")
+    );
+
+    let disabled = PASSING_MODEL.replace(
+        "\"terminal_states\": [\"released\"]",
+        "\"terminal_states\": [\"released\"], \"checks\": {\"deterministic_events\": false}",
+    );
+    let disabled_path = temp_model("strict-disabled", &disabled);
+    let disabled_output = Command::new(env!("CARGO_BIN_EXE_des-formal-check"))
+        .arg("--strict")
+        .arg(&disabled_path)
+        .output()
+        .unwrap();
+    assert_eq!(disabled_output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&disabled_output.stderr).contains("deterministic_events"));
+
+    std::fs::remove_file(warning_path).unwrap();
+    std::fs::remove_file(disabled_path).unwrap();
+}

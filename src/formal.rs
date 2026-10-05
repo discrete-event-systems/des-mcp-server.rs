@@ -17,7 +17,12 @@ pub const DEFAULT_MAX_STATES: usize = 10_000;
 pub const HARD_MAX_STATES: usize = 100_000;
 pub const MAX_MODEL_BYTES: usize = 4_000_000;
 const MAX_PREDICATE_VISITS: usize = 2_000_000;
+const MAX_POINTER_WORK_BYTES: usize = 64_000_000;
+const MAX_JSON_POINTER_BYTES: usize = 4_096;
 const MAX_VIOLATIONS: usize = 100;
+const MAX_WARNINGS: usize = 100;
+const MAX_TRACE_STEPS: usize = 2_048;
+const TRACE_EDGE_STEPS: usize = MAX_TRACE_STEPS / 2;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -132,6 +137,8 @@ pub struct Violation {
     pub code: &'static str,
     pub message: String,
     pub trace: Vec<TraceStep>,
+    pub trace_omitted_steps: usize,
+    pub trace_omission_after: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,6 +151,7 @@ pub struct CheckReport {
     pub violations: Vec<Violation>,
     pub omitted_violations: usize,
     pub warnings: Vec<String>,
+    pub omitted_warnings: usize,
 }
 
 impl CheckReport {
@@ -158,6 +166,11 @@ impl CheckReport {
     }
 
     #[must_use]
+    pub fn warning_count(&self) -> usize {
+        self.warnings.len() + self.omitted_warnings
+    }
+
+    #[must_use]
     pub fn render_markdown(&self) -> String {
         let status = if self.passed() { "PASS" } else { "FAIL" };
         let mut out = format!(
@@ -167,25 +180,29 @@ impl CheckReport {
              - invariants: {}\n\
              - violations: {}\n\
              - warnings: {}\n",
-            self.model_name,
+            markdown_text(&self.model_name),
             self.reachable_states,
             self.declared_states,
             self.transitions,
             self.invariants,
             self.violation_count(),
-            self.warnings.len()
+            self.warning_count()
         );
         if !self.violations.is_empty() {
             out.push_str("\n## Violations\n");
             for violation in &self.violations {
                 out.push_str(&format!(
                     "\n### `{}`\n\n{}\n",
-                    violation.code, violation.message
+                    violation.code,
+                    markdown_text(&violation.message)
                 ));
                 if !violation.trace.is_empty() {
-                    out.push_str("\nShortest counterexample trace:\n\n```text\n");
-                    out.push_str(&render_trace(&violation.trace));
-                    out.push_str("```\n");
+                    out.push_str("\nShortest counterexample trace:\n\n");
+                    for line in render_trace(violation).lines() {
+                        out.push_str("    ");
+                        out.push_str(line);
+                        out.push('\n');
+                    }
                 }
             }
             if self.omitted_violations > 0 {
@@ -195,10 +212,16 @@ impl CheckReport {
                 ));
             }
         }
-        if !self.warnings.is_empty() {
+        if self.warning_count() > 0 {
             out.push_str("\n## Warnings\n");
             for warning in &self.warnings {
-                out.push_str(&format!("\n- {warning}"));
+                out.push_str(&format!("\n- {}", markdown_text(warning)));
+            }
+            if self.omitted_warnings > 0 {
+                out.push_str(&format!(
+                    "\n\n_{} additional warning(s) omitted._",
+                    self.omitted_warnings
+                ));
             }
             out.push('\n');
         }
@@ -209,10 +232,86 @@ impl CheckReport {
 /// Parse and exhaustively check a finite explicit-state model.
 /// Ambiguous JSON, overflowing integer tokens, and oversized inputs fail closed.
 pub fn check_json(raw: &str, max_states: usize) -> Result<CheckReport, String> {
-    input::validate_json(raw)?;
-    let model: StateMachine =
-        serde_json::from_str(raw).map_err(|error| format!("invalid model JSON: {error}"))?;
+    let model = parse_model(raw)?;
     check_model(&model, max_states)
+}
+
+/// Apply the organization baseline on top of ordinary model checking.
+///
+/// Strict models must keep all baseline graph obligations enabled, contain at
+/// least one safety invariant, and produce no specification-drift warnings.
+/// This is intended for CI policy gates; callers that intentionally need a
+/// weaker or exploratory model can continue to use `check_json`.
+pub fn check_json_strict(raw: &str, max_states: usize) -> Result<CheckReport, String> {
+    let model = parse_model(raw)?;
+    let report = check_model(&model, max_states)?;
+    validate_strict_profile(&model)?;
+    // Preserve real counterexamples as exit-1 proof failures. Warning-only
+    // specifications are rejected as invalid strict-policy evidence.
+    if report.passed() && report.warning_count() > 0 {
+        let preview = report
+            .warnings
+            .iter()
+            .take(5)
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(format!(
+            "strict verification rejects {} warning(s): {preview}",
+            report.warning_count()
+        ));
+    }
+    Ok(report)
+}
+
+fn parse_model(raw: &str) -> Result<StateMachine, String> {
+    input::validate_json(raw)?;
+    serde_json::from_str(raw).map_err(|error| format!("invalid model JSON: {error}"))
+}
+
+fn validate_strict_profile(model: &StateMachine) -> Result<(), String> {
+    if model.invariants.is_empty() {
+        return Err("strict verification requires at least one safety invariant".to_string());
+    }
+    let mut disabled = Vec::new();
+    if !model.checks.deterministic_events {
+        disabled.push("deterministic_events");
+    }
+    if !model.checks.nonterminal_deadlocks {
+        disabled.push("nonterminal_deadlocks");
+    }
+    if !model.checks.terminal_reachability {
+        disabled.push("terminal_reachability");
+    }
+    if !disabled.is_empty() {
+        return Err(format!(
+            "strict verification requires baseline checks to remain enabled: {}",
+            disabled.join(", ")
+        ));
+    }
+
+    let terminals: BTreeSet<&str> = model.terminal_states.iter().map(String::as_str).collect();
+    let mut transitions = BTreeSet::new();
+    for transition in &model.transitions {
+        let identity = (
+            transition.from.as_str(),
+            transition.event.as_str(),
+            transition.to.as_str(),
+        );
+        if !transitions.insert(identity) {
+            return Err(format!(
+                "strict verification rejects duplicate transition {:?}: {:?} -> {:?}",
+                transition.event, transition.from, transition.to
+            ));
+        }
+        if terminals.contains(transition.from.as_str()) {
+            return Err(format!(
+                "strict verification requires terminal state {:?} to be absorbing",
+                transition.from
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn check_model(model: &StateMachine, max_states: usize) -> Result<CheckReport, String> {
@@ -230,6 +329,7 @@ fn check_model(model: &StateMachine, max_states: usize) -> Result<CheckReport, S
         violations: Vec::new(),
         omitted_violations: 0,
         warnings: Vec::new(),
+        omitted_warnings: 0,
     };
 
     check_invariants(model, &order, &predecessors, &mut report);
@@ -264,11 +364,14 @@ fn check_model(model: &StateMachine, max_states: usize) -> Result<CheckReport, S
         .map(String::as_str)
         .collect();
     if !unreachable.is_empty() {
-        report.warnings.push(format!(
-            "{} unreachable state(s): {}",
-            unreachable.len(),
-            quoted(unreachable.iter().copied().take(50))
-        ));
+        add_warning(
+            &mut report,
+            format!(
+                "{} unreachable state(s): {}",
+                unreachable.len(),
+                quoted(unreachable.iter().copied().take(50))
+            ),
+        );
     }
     Ok(report)
 }
@@ -302,6 +405,25 @@ fn validate(model: &StateMachine, max_states: usize) -> Result<(), String> {
     if model.states.len().saturating_mul(predicates) > MAX_PREDICATE_VISITS {
         return Err(format!(
             "predicate work exceeds {MAX_PREDICATE_VISITS} state/predicate visits"
+        ));
+    }
+    let pointer_bytes = model.invariants.iter().fold(0usize, |sum, invariant| {
+        invariant
+            .when
+            .iter()
+            .chain(&invariant.assertions)
+            .fold(sum, |sum, predicate| {
+                let right_path_bytes = match predicate.right.as_ref() {
+                    Some(Operand::Path(path)) => path.path.len(),
+                    Some(Operand::Value(_)) | None => 0,
+                };
+                sum.saturating_add(predicate.path.len())
+                    .saturating_add(right_path_bytes)
+            })
+    });
+    if model.states.len().saturating_mul(pointer_bytes) > MAX_POINTER_WORK_BYTES {
+        return Err(format!(
+            "JSON Pointer work exceeds {MAX_POINTER_WORK_BYTES} state/pointer bytes"
         ));
     }
     if !model.states.contains_key(&model.initial) {
@@ -353,10 +475,24 @@ fn validate(model: &StateMachine, max_states: usize) -> Result<(), String> {
 }
 
 fn label(value: &str, what: &str) -> Result<(), String> {
-    if value.is_empty() || value.len() > 128 || value.chars().any(char::is_control) {
+    if value.is_empty() || value.len() > 128 || value.chars().any(unsafe_display_character) {
         return Err(format!("invalid {what}: {value:?}"));
     }
     Ok(())
+}
+
+fn unsafe_display_character(character: char) -> bool {
+    character.is_control()
+        || matches!(
+            character,
+            '\u{061c}'
+                | '\u{200e}'
+                | '\u{200f}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202a}'..='\u{202e}'
+                | '\u{2066}'..='\u{2069}'
+        )
 }
 
 fn validate_predicate(
@@ -399,6 +535,11 @@ fn validate_predicate(
 }
 
 fn pointer(path: &str) -> Result<(), String> {
+    if path.len() > MAX_JSON_POINTER_BYTES {
+        return Err(format!(
+            "JSON Pointer exceeds {MAX_JSON_POINTER_BYTES} bytes"
+        ));
+    }
     if path.is_empty() {
         return Ok(());
     }
@@ -506,7 +647,7 @@ fn check_invariants(
                                 "invariant {:?} guard failed in {state_name:?}: {error}",
                                 invariant.name
                             ),
-                            trace(&model.initial, state_name, predecessors),
+                            || trace(&model.initial, state_name, predecessors),
                         );
                         applies = false;
                         break;
@@ -528,7 +669,7 @@ fn check_invariants(
                             invariant.name,
                             describe(predicate)
                         ),
-                        trace(&model.initial, state_name, predecessors),
+                        || trace(&model.initial, state_name, predecessors),
                     ),
                     Err(error) => add(
                         report,
@@ -537,7 +678,7 @@ fn check_invariants(
                             "invariant {:?} assertion failed in {state_name:?}: {error}",
                             invariant.name
                         ),
-                        trace(&model.initial, state_name, predecessors),
+                        || trace(&model.initial, state_name, predecessors),
                     ),
                 }
             }
@@ -545,10 +686,13 @@ fn check_invariants(
     }
     for (invariant, hits) in model.invariants.iter().zip(guard_hits) {
         if !invariant.when.is_empty() && hits == 0 {
-            report.warnings.push(format!(
-                "invariant {:?} guard never matched a reachable state",
-                invariant.name
-            ));
+            add_warning(
+                report,
+                format!(
+                    "invariant {:?} guard never matched a reachable state",
+                    invariant.name
+                ),
+            );
         }
     }
 }
@@ -577,7 +721,7 @@ fn check_determinism(
                     "state {state:?} maps event {event:?} to: {}",
                     quoted(destinations)
                 ),
-                trace(&model.initial, state, predecessors),
+                || trace(&model.initial, state, predecessors),
             );
         }
     }
@@ -597,7 +741,7 @@ fn check_deadlocks(
                 report,
                 "nonterminal-deadlock",
                 format!("non-terminal state {state:?} has no outgoing transition"),
-                trace(&model.initial, state, predecessors),
+                || trace(&model.initial, state, predecessors),
             );
         }
     }
@@ -632,7 +776,7 @@ fn check_terminal_reachability(
                 report,
                 "terminal-unreachable",
                 format!("state {state:?} cannot reach a terminal state"),
-                trace(&model.initial, state, predecessors),
+                || trace(&model.initial, state, predecessors),
             );
         }
     }
@@ -717,50 +861,144 @@ fn describe(predicate: &Predicate) -> String {
     }
 }
 
-fn trace(initial: &str, target: &str, predecessors: &Predecessors) -> Vec<TraceStep> {
-    let mut result = vec![TraceStep {
-        state: target.to_string(),
-        event: None,
-    }];
-    let mut current = target.to_string();
-    while current != initial {
-        let Some((parent, event)) = predecessors.get(&current) else {
-            break;
-        };
-        if let Some(step) = result.last_mut() {
-            step.event = Some(event.clone());
-        }
-        current = parent.clone();
-        result.push(TraceStep {
-            state: current.clone(),
-            event: None,
-        });
-    }
-    result.reverse();
-    result
+struct BoundedTrace {
+    steps: Vec<TraceStep>,
+    omitted_steps: usize,
 }
 
-fn render_trace(trace: &[TraceStep]) -> String {
-    let Some(first) = trace.first() else {
+fn trace(initial: &str, target: &str, predecessors: &Predecessors) -> BoundedTrace {
+    let mut full_reverse = Vec::with_capacity(MAX_TRACE_STEPS);
+    let mut target_reverse = Vec::with_capacity(TRACE_EDGE_STEPS);
+    let mut initial_reverse = VecDeque::with_capacity(TRACE_EDGE_STEPS + 1);
+    let mut current = target.to_string();
+    let mut total_steps = 0usize;
+
+    loop {
+        let event = if current == initial {
+            None
+        } else {
+            predecessors.get(&current).map(|(_, event)| event.clone())
+        };
+        let step = TraceStep {
+            state: current.clone(),
+            event,
+        };
+
+        if full_reverse.len() < MAX_TRACE_STEPS {
+            full_reverse.push(step.clone());
+        }
+        if total_steps < TRACE_EDGE_STEPS {
+            target_reverse.push(step.clone());
+        }
+        initial_reverse.push_back(step);
+        if initial_reverse.len() > TRACE_EDGE_STEPS {
+            initial_reverse.pop_front();
+        }
+        total_steps += 1;
+
+        if current == initial {
+            break;
+        }
+        let Some((parent, _)) = predecessors.get(&current) else {
+            break;
+        };
+        current = parent.clone();
+    }
+
+    if total_steps <= MAX_TRACE_STEPS {
+        full_reverse.reverse();
+        return BoundedTrace {
+            steps: full_reverse,
+            omitted_steps: 0,
+        };
+    }
+
+    let mut steps: Vec<TraceStep> = initial_reverse.into_iter().rev().collect();
+    target_reverse.reverse();
+    steps.extend(target_reverse);
+    BoundedTrace {
+        omitted_steps: total_steps.saturating_sub(steps.len()),
+        steps,
+    }
+}
+
+fn markdown_text(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            character if unsafe_display_character(character) => {
+                out.push_str(&format!("\\u{{{:04x}}}", character as u32));
+            }
+            '\\' | '`' | '*' | '_' | '{' | '}' | '[' | ']' | '(' | ')' | '#' | '!' | '|' => {
+                out.push('\\');
+                out.push(character);
+            }
+            _ => out.push(character),
+        }
+    }
+    out
+}
+
+fn render_trace(violation: &Violation) -> String {
+    let Some(first) = violation.trace.first() else {
         return String::new();
     };
     let mut out = format!("{}\n", first.state);
-    for step in trace.iter().skip(1) {
+    let split = violation
+        .trace_omission_after
+        .unwrap_or(violation.trace.len())
+        .min(violation.trace.len());
+
+    for step in violation.trace[1..split].iter() {
         out.push_str(&format!(
             "  --{}--> {}\n",
             step.event.as_deref().unwrap_or("?"),
             step.state
         ));
     }
+
+    if violation.trace_omitted_steps > 0 {
+        out.push_str(&format!(
+            "... {} intermediate step(s) omitted ...\n",
+            violation.trace_omitted_steps
+        ));
+        if let Some(first_suffix) = violation.trace.get(split) {
+            out.push_str(&format!("{}\n", first_suffix.state));
+            for step in violation.trace[(split + 1)..].iter() {
+                out.push_str(&format!(
+                    "  --{}--> {}\n",
+                    step.event.as_deref().unwrap_or("?"),
+                    step.state
+                ));
+            }
+        }
+    }
     out
 }
 
-fn add(report: &mut CheckReport, code: &'static str, message: String, trace: Vec<TraceStep>) {
+fn add_warning(report: &mut CheckReport, warning: String) {
+    if report.warnings.len() < MAX_WARNINGS {
+        report.warnings.push(warning);
+    } else {
+        report.omitted_warnings += 1;
+    }
+}
+
+fn add<F>(report: &mut CheckReport, code: &'static str, message: String, trace: F)
+where
+    F: FnOnce() -> BoundedTrace,
+{
     if report.violations.len() < MAX_VIOLATIONS {
+        let trace = trace();
         report.violations.push(Violation {
             code,
             message,
-            trace,
+            trace_omission_after: (trace.omitted_steps > 0).then_some(TRACE_EDGE_STEPS),
+            trace: trace.steps,
+            trace_omitted_steps: trace.omitted_steps,
         });
     } else {
         report.omitted_violations += 1;
@@ -866,5 +1104,45 @@ mod tests {
     fn enforces_schema_and_state_bound() {
         assert!(check_json(&PASSING.replace(MODEL_SCHEMA, "v2"), 10).is_err());
         assert!(check_json(PASSING, 2).is_err());
+    }
+
+    #[test]
+    fn omitted_violations_do_not_construct_counterexample_traces() {
+        use std::cell::Cell;
+
+        let trace_builds = Cell::new(0usize);
+        let mut report = CheckReport {
+            model_name: "trace laziness".to_string(),
+            declared_states: 1,
+            reachable_states: 1,
+            transitions: 0,
+            invariants: 1,
+            violations: Vec::new(),
+            omitted_violations: 0,
+            warnings: Vec::new(),
+            omitted_warnings: 0,
+        };
+
+        for _ in 0..(MAX_VIOLATIONS + 25) {
+            add(
+                &mut report,
+                "test-violation",
+                "synthetic".to_string(),
+                || {
+                    trace_builds.set(trace_builds.get() + 1);
+                    BoundedTrace {
+                        steps: vec![TraceStep {
+                            state: "s0".to_string(),
+                            event: None,
+                        }],
+                        omitted_steps: 0,
+                    }
+                },
+            );
+        }
+
+        assert_eq!(report.violations.len(), MAX_VIOLATIONS);
+        assert_eq!(report.omitted_violations, 25);
+        assert_eq!(trace_builds.get(), MAX_VIOLATIONS);
     }
 }

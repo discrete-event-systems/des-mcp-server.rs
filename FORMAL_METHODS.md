@@ -129,3 +129,53 @@ A formal-model PR should identify:
 - assumptions that remain outside the model.
 
 Never turn a failing obligation off merely to make CI green. Narrow an invalid property only when the revised assumption is explicit, reviewed, and backed by implementation evidence.
+
+
+## Organization baseline / strict mode
+
+The generic library API remains useful for exploratory models, so ordinary `check_json`
+continues to permit explicit check disabling and warning-only results. Organization CI
+must use the stricter profile:
+
+```sh
+cargo run --locked --bin des-formal-check -- --strict formal/**/*.json
+```
+
+Strict verification fails closed unless the model contains at least one safety
+invariant and keeps `deterministic_events`, `nonterminal_deadlocks`, and
+`terminal_reachability` enabled. It also rejects warning-only specifications,
+including unreachable declared states and conditional invariants whose guards
+never match a reachable state. These cases are specification drift or vacuity,
+not acceptable organization-baseline proof evidence.
+
+
+Strict organization models also reject exact duplicate transition declarations and
+require every declared terminal state to be absorbing (no outgoing transition,
+including self-loops). Otherwise a duplicated edge can conceal generator drift and
+a so-called terminal state would not actually denote completion.
+
+Markdown reports escape model-controlled prose and render counterexample traces as
+indented code rather than model-breakable fenced blocks. CLI filesystem diagnostics
+use debug-escaped paths so control characters in filenames cannot spoof logs.
+
+
+Resource hardening bounds each JSON Pointer to 4,096 bytes, caps retained warning
+details at 100 while preserving the exact total warning count, and enforces a
+64,000,000 state/pointer-byte work budget in addition to the state/predicate visit
+budget. This prevents a bounded 4 MB model from combining many states with long
+pointers into billions of pointer-byte traversals. Strict mode still rejects the
+full warning count even when only the first warning details are retained.
+
+
+Counterexample evidence retains at most 2,048 trace states per violation: the first
+1,024 and final 1,024 states of the shortest path. Longer paths record the exact
+number of omitted intermediate steps and render an explicit omission marker. Trace
+construction is lazy once the 100 retained-violation cap is full, so omitted
+violations increment only the exact omitted count instead of repeatedly reconstructing
+long predecessor paths. This avoids quadratic path reconstruction on large trapped
+graphs while preserving both the initial state and the actual counterexample state.
+
+Evidence rendering rejects bidirectional/line-separator controls in model labels and
+escapes the same controls when they originate in payload-derived report prose. This
+prevents visually reordered or line-spoofed diagnostics without restricting ordinary
+Unicode state data.

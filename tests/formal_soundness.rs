@@ -1,7 +1,7 @@
 //! Regression and independent-oracle tests for the verifier itself.
 use std::collections::BTreeSet;
 
-use des_mcp_server::formal::{DEFAULT_MAX_STATES, check_json};
+use des_mcp_server::formal::{DEFAULT_MAX_STATES, check_json, check_json_strict};
 use serde_json::{Value, json};
 
 fn comparison(left: &str, right: &str, op: &str) -> String {
@@ -207,4 +207,340 @@ fn every_three_state_graph_agrees_with_an_independent_transitive_closure_oracle(
             }
         }
     }
+}
+
+#[test]
+fn strict_profile_rejects_policy_bypasses_and_specification_drift() {
+    let passing = comparison("0", "0", "eq");
+    assert!(
+        check_json_strict(&passing, DEFAULT_MAX_STATES)
+            .unwrap()
+            .passed()
+    );
+
+    let no_invariants = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "no safety property",
+        "initial": "done",
+        "states": {"done": {}},
+        "terminal_states": ["done"]
+    });
+    assert!(
+        check_json_strict(&no_invariants.to_string(), DEFAULT_MAX_STATES)
+            .unwrap_err()
+            .contains("at least one safety invariant")
+    );
+
+    let disabled_checks = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "disabled baseline",
+        "initial": "done",
+        "states": {"done": {"ok": true}},
+        "terminal_states": ["done"],
+        "checks": {
+            "deterministic_events": false,
+            "nonterminal_deadlocks": true,
+            "terminal_reachability": true
+        },
+        "invariants": [{
+            "name": "safe",
+            "assert": [{"path": "/ok", "op": "eq", "right": {"value": true}}]
+        }]
+    });
+    assert!(
+        check_json_strict(&disabled_checks.to_string(), DEFAULT_MAX_STATES)
+            .unwrap_err()
+            .contains("deterministic_events")
+    );
+
+    let unreachable_state = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "drift",
+        "initial": "done",
+        "states": {"done": {"ok": true}, "unused": {"ok": true}},
+        "terminal_states": ["done"],
+        "invariants": [{
+            "name": "safe",
+            "assert": [{"path": "/ok", "op": "eq", "right": {"value": true}}]
+        }]
+    });
+    assert!(
+        check_json_strict(&unreachable_state.to_string(), DEFAULT_MAX_STATES)
+            .unwrap_err()
+            .contains("warning")
+    );
+
+    let vacuous = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "vacuous",
+        "initial": "done",
+        "states": {"done": {"kind": "ordinary", "amount": 0}},
+        "terminal_states": ["done"],
+        "invariants": [{
+            "name": "protected amount",
+            "when": [{"path": "/kind", "op": "eq", "right": {"value": "protected"}}],
+            "assert": [{"path": "/amount", "op": "gte", "right": {"value": 0}}]
+        }]
+    });
+    assert!(
+        check_json_strict(&vacuous.to_string(), DEFAULT_MAX_STATES)
+            .unwrap_err()
+            .contains("guard never matched")
+    );
+
+    // Generic checking deliberately remains warning-tolerant for exploratory use.
+    assert!(
+        check_json(&vacuous.to_string(), DEFAULT_MAX_STATES)
+            .unwrap()
+            .passed()
+    );
+}
+
+#[test]
+fn strict_profile_rejects_duplicate_edges_and_nonabsorbing_terminals() {
+    let duplicate = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "duplicate edge",
+        "initial": "start",
+        "states": {"start": {"ok": true}, "done": {"ok": true}},
+        "transitions": [
+            {"event": "finish", "from": "start", "to": "done"},
+            {"event": "finish", "from": "start", "to": "done"}
+        ],
+        "terminal_states": ["done"],
+        "invariants": [{
+            "name": "safe",
+            "assert": [{"path": "/ok", "op": "eq", "right": {"value": true}}]
+        }]
+    });
+    assert!(
+        check_json(&duplicate.to_string(), DEFAULT_MAX_STATES)
+            .unwrap()
+            .passed()
+    );
+    assert!(
+        check_json_strict(&duplicate.to_string(), DEFAULT_MAX_STATES)
+            .unwrap_err()
+            .contains("duplicate transition")
+    );
+
+    let terminal_loop = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "terminal loop",
+        "initial": "done",
+        "states": {"done": {"ok": true}},
+        "transitions": [{"event": "again", "from": "done", "to": "done"}],
+        "terminal_states": ["done"],
+        "invariants": [{
+            "name": "safe",
+            "assert": [{"path": "/ok", "op": "eq", "right": {"value": true}}]
+        }]
+    });
+    assert!(
+        check_json(&terminal_loop.to_string(), DEFAULT_MAX_STATES)
+            .unwrap()
+            .passed()
+    );
+    assert!(
+        check_json_strict(&terminal_loop.to_string(), DEFAULT_MAX_STATES)
+            .unwrap_err()
+            .contains("absorbing")
+    );
+}
+
+#[test]
+fn markdown_evidence_cannot_be_broken_by_model_labels() {
+    let raw = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "<b>`proof`</b>",
+        "initial": "start",
+        "states": {"start": {"ok": true}, "```bad": {"ok": false}},
+        "transitions": [{"event": "```go", "from": "start", "to": "```bad"}],
+        "terminal_states": ["```bad"],
+        "invariants": [{
+            "name": "safe",
+            "assert": [{"path": "/ok", "op": "eq", "right": {"value": true}}]
+        }]
+    });
+    let report = check_json(&raw.to_string(), DEFAULT_MAX_STATES).unwrap();
+    assert!(!report.passed());
+    let markdown = report.render_markdown();
+    assert!(markdown.contains("&lt;b&gt;\\`proof\\`&lt;/b&gt;"));
+    assert!(!markdown.contains("```text"));
+    assert!(markdown.contains("    start"));
+    assert!(markdown.contains("    --```go--> ```bad"));
+}
+
+#[test]
+fn pointer_size_and_warning_volume_are_bounded() {
+    let too_long = format!("/{}", "a".repeat(4_096));
+    let oversized_pointer = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "oversized pointer",
+        "initial": "done",
+        "states": {"done": {"ok": true}},
+        "terminal_states": ["done"],
+        "invariants": [{
+            "name": "oversized path",
+            "assert": [{"path": too_long, "op": "exists"}]
+        }]
+    });
+    assert!(
+        check_json(&oversized_pointer.to_string(), DEFAULT_MAX_STATES)
+            .unwrap_err()
+            .contains("JSON Pointer exceeds")
+    );
+
+    let invariants: Vec<Value> = (0..150)
+        .map(|index| {
+            json!({
+                "name": format!("vacuous-{index}"),
+                "when": [{"path": "/kind", "op": "eq", "right": {"value": "protected"}}],
+                "assert": [{"path": "/amount", "op": "gte", "right": {"value": 0}}]
+            })
+        })
+        .collect();
+    let many_warnings = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "bounded warnings",
+        "initial": "done",
+        "states": {"done": {"kind": "ordinary", "amount": 0}},
+        "terminal_states": ["done"],
+        "invariants": invariants
+    });
+    let report = check_json(&many_warnings.to_string(), DEFAULT_MAX_STATES).unwrap();
+    assert!(report.passed());
+    assert_eq!(report.warning_count(), 150);
+    assert_eq!(report.warnings.len(), 100);
+    assert_eq!(report.omitted_warnings, 50);
+    assert!(
+        report
+            .render_markdown()
+            .contains("50 additional warning(s) omitted")
+    );
+    assert!(
+        check_json_strict(&many_warnings.to_string(), DEFAULT_MAX_STATES)
+            .unwrap_err()
+            .contains("150 warning(s)")
+    );
+}
+
+#[test]
+fn retained_counterexample_traces_have_a_fixed_memory_bound() {
+    let last = 2_100usize;
+    let states: serde_json::Map<String, Value> = (0..=last)
+        .map(|index| (format!("s{index:04}"), json!({"bad": index == last})))
+        .collect();
+    let transitions: Vec<Value> = (0..last)
+        .map(|index| {
+            json!({
+                "event": "next",
+                "from": format!("s{index:04}"),
+                "to": format!("s{:04}", index + 1)
+            })
+        })
+        .collect();
+    let raw = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "long counterexample",
+        "initial": "s0000",
+        "states": states,
+        "transitions": transitions,
+        "terminal_states": [format!("s{last:04}")],
+        "invariants": [{
+            "name": "never bad",
+            "assert": [{"path": "/bad", "op": "eq", "right": {"value": false}}]
+        }]
+    });
+
+    let report = check_json(&raw.to_string(), DEFAULT_MAX_STATES).unwrap();
+    let violation = report
+        .violations
+        .iter()
+        .find(|violation| violation.code == "invariant-violation")
+        .unwrap();
+    assert_eq!(violation.trace.len(), 2_048);
+    assert_eq!(violation.trace_omitted_steps, 53);
+    assert_eq!(violation.trace_omission_after, Some(1_024));
+    assert_eq!(violation.trace.first().unwrap().state, "s0000");
+    assert_eq!(violation.trace.last().unwrap().state, "s2100");
+    assert!(
+        report
+            .render_markdown()
+            .contains("53 intermediate step(s) omitted")
+    );
+}
+
+#[test]
+fn weighted_pointer_work_and_display_spoofing_are_rejected() {
+    let states: serde_json::Map<String, Value> = (0..100)
+        .map(|index| (format!("s{index}"), json!({"ok": true})))
+        .collect();
+    let long_pointer = format!("/{}", "a".repeat(4_000));
+    let invariants: Vec<Value> = (0..200)
+        .map(|index| {
+            json!({
+                "name": format!("pointer-{index}"),
+                "assert": [{
+                    "path": long_pointer,
+                    "op": "exists"
+                }]
+            })
+        })
+        .collect();
+    let raw = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "pointer work",
+        "initial": "s0",
+        "states": states,
+        "terminal_states": ["s0"],
+        "invariants": invariants
+    });
+    let error = check_json(&raw.to_string(), DEFAULT_MAX_STATES).unwrap_err();
+    assert!(error.contains("JSON Pointer work exceeds"), "{error}");
+
+    for spoofed_name in [
+        "safe\u{202e}txt",
+        "safe\u{2066}txt",
+        "safe\u{2028}txt",
+        "safe\u{061c}txt",
+    ] {
+        let raw = json!({
+            "$schema": "des/state-machine/v1",
+            "name": spoofed_name,
+            "initial": "done",
+            "states": {"done": {"ok": true}},
+            "terminal_states": ["done"],
+            "invariants": [{
+                "name": "safe",
+                "assert": [{"path": "/ok", "op": "eq", "right": {"value": true}}]
+            }]
+        });
+        assert!(check_json(&raw.to_string(), DEFAULT_MAX_STATES).is_err());
+    }
+}
+
+#[test]
+fn report_prose_escapes_unicode_direction_controls_from_state_values() {
+    let raw = json!({
+        "$schema": "des/state-machine/v1",
+        "name": "payload rendering",
+        "initial": "done",
+        "states": {"done": {"value": "safe\u{202e}txt"}},
+        "terminal_states": ["done"],
+        "invariants": [{
+            "name": "must match",
+            "assert": [{
+                "path": "/value",
+                "op": "eq",
+                "right": {"value": "expected\u{2066}txt"}
+            }]
+        }]
+    });
+    let report = check_json(&raw.to_string(), DEFAULT_MAX_STATES).unwrap();
+    assert!(!report.passed());
+    let markdown = report.render_markdown();
+    assert!(!markdown.contains('\u{202e}'));
+    assert!(!markdown.contains('\u{2066}'));
+    assert!(markdown.contains("expected"));
 }

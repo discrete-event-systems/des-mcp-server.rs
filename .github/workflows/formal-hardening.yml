@@ -2,7 +2,9 @@ name: formal-hardening
 
 on:
   pull_request:
-    branches: [feat/bounded-formal-model-checker]
+    branches: [main, feat/bounded-formal-model-checker]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -12,7 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  formal-verifier:
+    name: formal-verifier
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
