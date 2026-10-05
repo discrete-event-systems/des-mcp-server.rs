@@ -1,17 +1,24 @@
 /target
 .DS_Store
 
-# --- environment / secrets (sops + age) -------------------------------------
-# Only env/enc/*.env.enc is tracked. Every plaintext form stays out of git;
-# `just env-check` enforces it. See env/README.md.
-.env
-.env.*
-*.env
-**/*.env
-env/dec/
-!.env.example
+# Local temporary directories and Git worktrees (DEN-3956).
+tmp/
+temp/
 
-# age private keys — never commit these.
+# BEGIN ores-sops dotenv policy
+*.env
+*/*.env
+*/**/*.env
+.env.*
+*.env.*
+!.env.example
+/env/dec/
+/env/enc/*
+!/env/enc/dev.env.enc
+!/env/enc/prod.env.enc
+# END ores-sops dotenv policy
+
+# Age/SOPS private-key material must never be tracked.
 *.agekey
 *.age-key
 keys.txt
