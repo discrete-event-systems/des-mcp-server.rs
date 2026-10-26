@@ -1,28 +1,21 @@
 # des-mcp-server.rs — agent contract
 
-## Parent / root agent contract
+## Parent / fleet contract
 
-This file is **this repository's** agent contract. The fleet-wide parent lives at:
+This repository's tracked `AGENTS.md` governs repository-specific behavior.
+Before fleet or cross-repository work, also read the current canonical policies:
 
-- GitHub: https://github.com/oresoftware/my-ai/AGENTS.md
-- Disk: `~/codes/oresoftware/my-ai/AGENTS.md`
-- Installed by `~/codes/oresoftware/my-ai/setup-final.sh` (not `.md`) as symlinks onto:
-  - `~/codes/AGENTS.md`
-  - `~/codes/.claude/AGENTS.md` and `~/codes/.claude/CLAUDE.md`
-  - `~/codes/.cursor/AGENTS.md` and `~/codes/.cursor/.cursorrules`
-  - `~/codes/.chatgpt/AGENTS.md`
-  - `~/codes/.openai/AGENTS.md`
-  - `~/codes/.anthropic/AGENTS.md`
+- `https://github.com/ORESoftware/my-ai/blob/main/AGENTS.md`
+- `https://github.com/ORESoftware/my-ai/blob/main/SHARED.md`
+- local checkout: `~/codes/oresoftware/my-ai/{AGENTS.md,SHARED.md}`
 
-When this file and the parent disagree: follow **this file** for this MCP
-server's tools, safety boundary, and env layout; follow the parent for org-wide
-git/Linear/GitHub/k8s/shared-auth/opto-sync/ores-otel/zed-pkg conventions.
+The reusable in-repository fleet entry point is `.ores/agents/AGENTS.md`, installed
+by `~/codes/oresoftware/my-ai/scripts/link-repo-agents.sh`. It is a machine-local
+symlink and must not be committed. Do not copy the parent policy into this repo.
 
-The mapping is 1:1:1:1 — GitHub org : Linear project : GitHub org project
-(usually `https://github.com/orgs/<org>/projects/1`) : Slack channel in
-`oresoftware-workspace.slack.com`. Linear workspace: https://linear.app/denman
-Primary GitHub user: `ORESoftware`. Secondary: `the1mills`.
-
+When policies differ, this file controls this repository's own tools, safety
+boundary, and environment layout; the canonical parent files control shared
+fleet conventions and cross-repository delivery rules.
 
 ---
 
